@@ -18,7 +18,7 @@ from pathlib import Path
 
 from ..scan import scan
 from ..store import SKIP_CONTENT, apply, backups, guard, preview, restore, target_home
-from .. import operations, updates, usage, cleanup
+from .. import operations, updates, usage, cleanup, labels
 from ..sources import github
 
 STATIC = Path(__file__).parent / "static"
@@ -36,6 +36,9 @@ class Dashboard(ThreadingHTTPServer):
         self.update_reviews = {}
         self.update_lock = threading.Lock()
         self.update_thread = None
+        self.labels_lock = threading.Lock()
+        self.labels_thread = None
+        self.labels_progress = {'running': False, 'done': 0, 'total': 0, 'message': '', 'error': ''}
         self.usage_lock = threading.Lock()
         self.usage_progress = {'running':False,'done':0,'total':0}
         self.usage_temporary = tempfile.TemporaryDirectory(prefix='skill-pilot-dashboard-usage-')
@@ -49,10 +52,11 @@ class Dashboard(ThreadingHTTPServer):
     def server_close(self):
         super().server_close()
         if self.update_thread: self.update_thread.join()
+        if self.labels_thread: self.labels_thread.join()
         self.usage_temporary.cleanup()
 
     def watch(self):
-        while time.monotonic() - self.last_heartbeat < HEARTBEAT_TIMEOUT or any(r['running'] for r in list(self.update_reviews.values())):
+        while time.monotonic() - self.last_heartbeat < HEARTBEAT_TIMEOUT or self.labels_progress['running'] or any(r['running'] for r in list(self.update_reviews.values())):
             time.sleep(0.1)
         self.shutdown()
 
@@ -94,6 +98,10 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.urlsplit(self.path).path
         if path == "/api/scan":
             self.reply(200, self.server.inventory)
+        elif path == '/api/settings':
+            self.reply(200, labels.public_settings(self.server.home))
+        elif path == '/api/labels/progress':
+            self.reply(200, self.server.labels_progress.copy())
         elif path == '/api/usage-progress':
             self.reply(200,self.server.usage_progress.copy())
         elif path == '/api/updates/progress':
@@ -165,7 +173,8 @@ class Handler(BaseHTTPRequestHandler):
                        '/api/updates/check', '/api/updates/explain', '/api/updates/merge', '/api/updates/calibrate'}
         write_routes = {'/api/assignment/apply', '/api/dependencies', '/api/install/apply', '/api/absorb', '/api/undo',
                         '/api/updates/apply','/api/cleanup/apply','/api/withdrawn/restore'}
-        if path not in {"/api/migration/apply", "/api/restore"} | read_routes | write_routes:
+        settings_routes = {'/api/settings/llm', '/api/settings/llm/test', '/api/labels/run'}
+        if path not in {"/api/migration/apply", "/api/restore"} | read_routes | write_routes | settings_routes:
             self.reply(405, {"error": "当前阶段没有这个操作。"})
             return
         try:
@@ -175,6 +184,29 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length))
             if not isinstance(body, dict):
                 raise ValueError('请求内容格式不正确。')
+            if path in settings_routes:
+                if not preview_allowed(self.server.home):
+                    self.reply(403, {'error': '当前处于只读模式，文件没有改动。'})
+                    return
+                if path == '/api/settings/llm':
+                    self.reply(200, labels.save_settings(self.server.home, body))
+                elif path == '/api/settings/llm/test':
+                    self.reply(200, labels.test(self.server.home))
+                else:
+                    mode = body.get('mode')
+                    if mode not in ('missing', 'all'):
+                        raise ValueError('请选择补齐中文名或重新整理全部。')
+                    with self.server.labels_lock:
+                        if self.server.labels_progress['running']:
+                            raise ValueError('正在给技能起中文名，请等这次完成。')
+                        if not labels.settings(self.server.home).get('api_key'):
+                            raise ValueError('请先到设置里填好 AI 服务的 key。')
+                        self.server.labels_progress.update(running=True, done=0, total=0, message='正在准备技能名单…', error='')
+                        self.server.labels_thread = threading.Thread(target=labels.run,
+                            args=(self.server.home, mode, self.server.labels_progress), daemon=True)
+                        self.server.labels_thread.start()
+                        self.reply(200, self.server.labels_progress.copy())
+                return
             if path == '/api/updates/check':
                 with self.server.update_lock:
                     review = next(reversed(self.server.update_reviews.values()), None)
@@ -253,7 +285,8 @@ class Handler(BaseHTTPRequestHandler):
             self.server.inventory = scan(self.server.home)
             self.reply(200, result)
         except (ValueError, OSError, KeyError, TypeError, StopIteration, sqlite3.Error) as error:
-            self.reply(409, {"error": '正在统计，完成后再生成名单。' if isinstance(error,sqlite3.Error) else str(error) or "操作没能完成，请重新预览。"})
+            message = '设置没能保存，请核对后再试。' if path in settings_routes and not isinstance(error, ValueError) else str(error)
+            self.reply(409, {"error": '正在统计，完成后再生成名单。' if isinstance(error,sqlite3.Error) else message or "操作没能完成，请重新预览。"})
 
 
 def preview_allowed(home):
@@ -328,7 +361,7 @@ def run(json_output=False):
         server.last_heartbeat = time.monotonic()
         threading.Thread(target=server.watch, daemon=True).start()
         webbrowser.open(server.url)
-        print(json.dumps({"message": "看板已打开；关掉全部页面后，程序会在 30 秒内退出；正在检查更新时会等检查完成。", "pid": os.getpid(), "url": server.url}, ensure_ascii=False) if json_output else "看板已打开；关掉全部页面后，程序会在 30 秒内退出；正在检查更新时会等检查完成。", flush=True)
+        print(json.dumps({"message": "看板已打开；关掉全部页面后，程序会在 30 秒内退出；正在检查更新或起中文名时，会等任务完成。", "pid": os.getpid(), "url": server.url}, ensure_ascii=False) if json_output else "看板已打开；关掉全部页面后，程序会在 30 秒内退出；正在检查更新或起中文名时，会等任务完成。", flush=True)
         try:
             server.serve_forever(poll_interval=0.1)
         except KeyboardInterrupt:

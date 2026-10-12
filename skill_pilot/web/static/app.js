@@ -47,7 +47,7 @@ async function withBusy(button, label, work) {
 const CONFIRM_FOLD = 8;
 
 function confirmItems(items) {
-  return items.map(item => `<li>${escape(item.name)}${item.note ? `<span class="confirm-note-inline">（${escape(item.note)}）</span>` : ''}</li>`).join('');
+  return items.map(item => `<li>${nameHtml(item.name)}${item.note ? `<span class="confirm-note-inline">（${escape(item.note)}）</span>` : ''}</li>`).join('');
 }
 
 function confirmGroupsHtml(groups) {
@@ -348,6 +348,8 @@ const state = {
   writeAllowed: false,
   inventory: null,
   table: null,
+  skillIndex: new Map(),
+  openGroups: new Set(),
   usage: null,
   usageIndex: new Map(),
   agents: [],
@@ -389,6 +391,15 @@ function pathLabel(path) {
 }
 
 const number = value => Number(value || 0).toLocaleString('zh-CN');
+
+/* 技能的中文名来自本机整理结果（labels.json），没写的就用原名。
+   nameHtml 把原名用小号灰字跟在中文名后面，方便和助手里看到的名字对上。 */
+const titleOf = name => state.skillIndex.get(name)?.title || name;
+
+function nameHtml(name) {
+  const title = state.skillIndex.get(name)?.title;
+  return title ? `${escape(title)} <span class="skill-id">${escape(name)}</span>` : escape(name);
+}
 
 /* 原始时间格式换成大白话日期；跨年才写年份。 */
 function friendlyDate(value) {
@@ -441,6 +452,7 @@ function showPage(page) {
   if (page === 'cleanup') { renderCleanup(); loadCleanup(); }
   if (page === 'log') { renderLog(); refreshLog(); }
   if (page === 'diagnostics') renderDiagnostics();
+  if (page === 'settings') refreshSettings();
   renderActionBar();
   window.scrollTo({top: 0, behavior: 'auto'});
 }
@@ -496,7 +508,7 @@ function skillRows() {
   const query = $('skills-search').value.trim().toLowerCase();
   const filter = state.filter;
   return (state.table?.skills || []).filter(skill => {
-    if (query && !(skill.name + ' ' + skill.description).toLowerCase().includes(query)) return false;
+    if (query && !(skill.name + ' ' + skill.title + ' ' + skill.summary + ' ' + skill.description).toLowerCase().includes(query)) return false;
     if (filter === 'unassigned') return !(state.draft[skill.name] || []).length;
     if (filter === 'modified') return Boolean(skill.local_modified);
     if (filter === 'dependency') return skill.requires.length > 0;
@@ -517,10 +529,18 @@ function emptySkillsText() {
   return '还没有登记任何技能。';
 }
 
+const REASON_PATTERN = /^因为 (.+) 需要 (.+)，已一起勾上给 (.+)$/;
+
+/* 依赖带上的说明里换成中文名。 */
+function reasonText(reason) {
+  const match = REASON_PATTERN.exec(reason);
+  return match ? `因为 ${titleOf(match[1])} 需要 ${titleOf(match[2])}，已一起勾上给 ${match[3]}` : reason;
+}
+
 /* Codex 与 DSH 共用一个目录：只给 DSH 的技能，工具会在 Codex 里自动停用它。 */
 function dependencySource(skillName, agentName) {
   for (const reason of state.pending?.reasons || []) {
-    const match = /^因为 (.+) 需要 (.+)，已一起勾上给 (.+)$/.exec(reason);
+    const match = REASON_PATTERN.exec(reason);
     if (match && match[2] === skillName && match[3] === agentName) return match[1];
   }
   return null;
@@ -530,7 +550,7 @@ function cellNote(skill, agent) {
   const assigned = state.draft[skill.name] || [];
   if (agent.id === 'codex' && assigned.includes('dsh') && !assigned.includes('codex')) return 'Codex 里已自动停用';
   const source = dependencySource(skill.name, agent.name);
-  return source ? `因为 ${source} 需要它` : '';
+  return source ? `因为 ${titleOf(source)} 需要它` : '';
 }
 
 function tableAgents() {
@@ -543,27 +563,59 @@ function skillRowHtml(skill) {
   const tags = [
     skill.local_modified ? '<span class="tag tag-warn">你改过</span>' : '',
     skill.requires.length ? '<span class="tag tag-quiet">有依赖</span>' : '',
-    skill.source_label ? `<span class="tag tag-quiet">${escape(skill.source_label)}</span>` : '',
   ].join('');
   const cells = tableAgents().map(agent => {
     const error = assignmentErrors[skill.name + '|' + agent.id];
     const note = cellNote(skill, agent);
     return `<td class="cell-check">
       <label class="check-hit"><input type="checkbox" data-skill="${escape(skill.name)}" data-agent="${escape(agent.id)}"
-        aria-label="${escape(agent.name + ' 使用 ' + skill.name)}"
+        aria-label="${escape(agent.name + ' 使用 ' + titleOf(skill.name))}"
         ${assigned.includes(agent.id) ? 'checked' : ''} ${locked ? 'disabled' : ''}></label>
       ${note ? `<small class="cell-note">${escape(note)}</small>` : ''}
       ${error ? `<small class="cell-note cell-error">${escape(error)}</small>` : ''}
     </td>`;
   }).join('');
-  return `<tr data-skill-row="${escape(skill.name)}">
+  return `<tr data-skill-row="${escape(skill.name)}"${assigned.length ? '' : ' class="is-idle"'}>
     <td class="col-name">
-      <div class="skill-line"><strong>${escape(skill.name)}</strong>${tags}</div>
-      <p class="skill-desc" title="${escape(skill.description)}">${escape(skill.description)}</p>
+      <div class="skill-line"><strong>${nameHtml(skill.name)}</strong>${tags}</div>
+      <p class="skill-desc" title="${escape(skill.description)}">${escape(skill.summary || skill.description)}</p>
     </td>
     ${cells}
     <td class="col-last">${escape(lastUseLabel(skill.name).text)}</td>
     <td class="col-num">${number(skill.description_chars)}</td>
+  </tr>`;
+}
+
+/* 分组：在用的技能多的组排在前面，还没整理的放到最后的「未分组」。
+   组内已分配的在前、没分给任何助手的在后；都按已应用的分配排，勾选时不会跳。 */
+function groupedRows(rows) {
+  const byName = new Map(rows.map(skill => [skill.name, skill]));
+  const listed = new Set();
+  const idle = skill => ((state.saved[skill.name] || []).length ? 0 : 1);
+  const inUse = group => group.skills.filter(skill => !idle(skill)).length;
+  const groups = (state.table.groups || []).map(group => {
+    group.skills.forEach(name => listed.add(name));
+    return {name: group.name, skills: group.skills.map(name => byName.get(name)).filter(Boolean)};
+  }).sort((a, b) => inUse(b) - inUse(a));
+  groups.push({name: '未分组', skills: rows.filter(skill => !listed.has(skill.name))});
+  return groups.filter(group => group.skills.length)
+    .map(group => ({...group, skills: [...group.skills].sort((a, b) => idle(a) - idle(b))}));
+}
+
+/* 组标题行：各助手一栏写这一组分到了几个。搜索或筛选时各组都展开，不能收起。 */
+function groupRowHtml(group, open, forced) {
+  const inUse = group.skills.filter(skill => (state.draft[skill.name] || []).length).length;
+  const counts = tableAgents().map(agent => {
+    const count = group.skills.filter(skill => (state.draft[skill.name] || []).includes(agent.id)).length;
+    return `<td class="cell-check group-count">${count || '—'}</td>`;
+  }).join('');
+  return `<tr class="group-row" data-group-row="${escape(group.name)}">
+    <td class="col-name"><button type="button" class="group-toggle" aria-expanded="${open}" ${forced ? 'disabled' : ''}>
+      <span class="group-arrow" aria-hidden="true"></span><strong>${escape(group.name)}</strong>
+      <span class="group-meta">${group.skills.length} 个${inUse < group.skills.length ? `，${inUse} 个在用` : ''}</span>
+    </button></td>
+    ${counts}
+    <td class="col-last"></td><td class="col-num"></td>
   </tr>`;
 }
 
@@ -580,11 +632,21 @@ function renderSkillTable() {
   }
   const rows = skillRows();
   const total = state.table.skills.length;
-  $('skills-count').textContent = rows.length === total
-    ? `共 ${total} 个技能。点一行看详情，勾选框直接改分配。`
-    : `显示 ${rows.length} 个，共 ${total} 个技能。点一行看详情，勾选框直接改分配。`;
-  $('skills-rows').innerHTML = rows.map(skillRowHtml).join('')
-    || `<tr><td class="empty" colspan="${columns}">${escape(emptySkillsText())}</td></tr>`;
+  const forced = Boolean($('skills-search').value.trim()) || state.filter !== 'all';
+  const groups = groupedRows(rows);
+  const grouped = Boolean(state.table.groups?.length);
+  const allOpen = groups.every(group => state.openGroups.has(group.name));
+  $('skills-count').textContent = forced
+    ? `找到 ${rows.length} 个，共 ${total} 个技能。点一行看详情，勾选框直接改分配。`
+    : grouped ? `共 ${total} 个技能，分成 ${groups.length} 组。点组名展开，点一行看详情，勾选框直接改分配。`
+    : `共 ${total} 个技能。点一行看详情，勾选框直接改分配。`;
+  $('labels-hint').hidden = grouped || state.table.llm_configured;
+  $('skills-expand').hidden = forced || !groups.length || !grouped;
+  $('skills-expand').textContent = allOpen ? '全部收起' : '全部展开';
+  $('skills-rows').innerHTML = (!grouped ? rows.map(skillRowHtml).join('') : groups.map(group => {
+    const open = forced || state.openGroups.has(group.name);
+    return groupRowHtml(group, open, forced) + (open ? group.skills.map(skillRowHtml).join('') : '');
+  }).join('')) || `<tr><td class="empty" colspan="${columns}">${escape(emptySkillsText())}</td></tr>`;
   renderSkillsNote();
 }
 
@@ -618,7 +680,7 @@ function renderSkillsActionBar() {
   if (!changes.length || !state.table) return hideActionBar();
   showActionBar({
     text: state.pending?.message || `有 ${changes.length} 处还没应用的改动`,
-    note: (state.pending?.reasons || []).join('；'),
+    note: (state.pending?.reasons || []).map(reasonText).join('；'),
     buttons: [
       {label: '取消', kind: 'btn', action: () => discardPending()},
       {label: '应用', kind: 'btn btn-primary', disabled: previewBusy || Boolean(writeBusy) || !state.table.write_allowed, action: button => applyAssignment(button)},
@@ -718,12 +780,26 @@ $('skills-rows').addEventListener('change', event => {
 });
 
 $('skills-rows').addEventListener('click', event => {
+  const group = event.target.closest('[data-group-row]');
+  if (group) {
+    if (group.querySelector('.group-toggle').disabled) return;
+    const name = group.dataset.groupRow;
+    if (state.openGroups.has(name)) state.openGroups.delete(name); else state.openGroups.add(name);
+    renderSkillTable();
+    return;
+  }
   if (event.target.closest('input, button, select, label')) return;
   const row = event.target.closest('[data-skill-row]');
   if (row) openDetail(row.dataset.skillRow);
 });
 
 $('skills-search').addEventListener('input', renderSkillTable);
+$('skills-expand').addEventListener('click', () => {
+  const names = groupedRows(skillRows()).map(group => group.name);
+  const allOpen = names.every(name => state.openGroups.has(name));
+  state.openGroups = allOpen ? new Set() : new Set(names);
+  renderSkillTable();
+});
 $('skills-filters').addEventListener('click', event => {
   const button = event.target.closest('.seg');
   if (!button) return;
@@ -795,12 +871,16 @@ async function refreshInventory() {
   }
 }
 
-async function refreshTable() {
+async function refreshTable(preserveDraft = false) {
   const table = await api('/api/table');
+  const keepDraft = preserveDraft && table.revision === state.table?.revision;
+  const draft = state.draft, pending = state.pending;
   state.table = table;
+  state.skillIndex = new Map(table.skills.map(s => [s.name, s]));
   state.saved = Object.fromEntries(table.skills.map(s => [s.name, [...s.assigned_agents]]));
   state.draft = clone(state.saved);
   state.pending = null;
+  if (keepDraft) { state.draft = draft; state.pending = pending; }
   state.agents = AGENT_ORDER
     .map(id => table.agents.find(a => a.id === id))
     .filter(Boolean)
@@ -812,7 +892,162 @@ async function refreshTable() {
   renderSkillTable();
   if (state.detail) renderDetail();
   renderActionBar();
+  renderLabelCounts();
+  if (table.write_allowed && table.llm_configured && table.labels_pending > 0 && !labelsAutoAttempted && !labelsRunning) {
+    labelsAutoAttempted = true;
+    startLabels('missing');
+  }
 }
+
+/* ==================== 设置与中文名：只改变显示，不锁技能操作 ==================== */
+
+const LLM_DEFAULTS = {
+  deepseek: ['https://api.deepseek.com', 'deepseek-chat'],
+  qwen: ['https://dashscope.aliyuncs.com/compatible-mode/v1', 'qwen-plus'],
+  kimi: ['https://api.moonshot.cn/v1', 'moonshot-v1-32k'],
+  glm: ['https://open.bigmodel.cn/api/paas/v4', 'glm-4-flash'],
+  openai: ['https://api.openai.com/v1', 'gpt-4o-mini'],
+  other: ['', ''],
+};
+
+let llmSettings = {};
+let labelsAutoAttempted = false;
+let labelsRunning = false;
+
+function renderLabelCounts() {
+  const table = state.table;
+  if (!table) return;
+  const remaining = table.labels_pending;
+  $('labels-count').textContent = `已整理 ${table.skills.length - remaining} 个，还有 ${remaining} 个没有中文名`;
+  $('labels-missing').hidden = !remaining;
+  $('labels-missing').textContent = `给剩下的 ${remaining} 个起名`;
+  for (const id of ['labels-missing', 'labels-all']) {
+    $(id).disabled = !table.write_allowed || !table.llm_configured || labelsRunning;
+  }
+}
+
+async function refreshSettings() {
+  try {
+    llmSettings = (await api('/api/settings')).llm;
+    const provider = llmSettings.provider || 'deepseek';
+    $('llm-provider').value = provider in LLM_DEFAULTS ? provider : 'other';
+    const defaults = LLM_DEFAULTS[$('llm-provider').value];
+    $('llm-base-url').value = llmSettings.base_url || defaults[0];
+    $('llm-model').value = llmSettings.model || defaults[1];
+    $('llm-key').placeholder = llmSettings.has_key ? `已保存，末尾 ${llmSettings.key_tail}；不改就留空` : '粘贴服务商提供的 key';
+    $('llm-clear').hidden = !llmSettings.has_key;
+    for (const input of $('llm-form').querySelectorAll('input, select, button')) input.disabled = !state.table?.write_allowed;
+    renderLabelCounts();
+  } catch (error) {
+    toast({text: error.message, tone: 'error'});
+  }
+}
+
+function llmBody() {
+  return {provider: $('llm-provider').value, base_url: $('llm-base-url').value, model: $('llm-model').value};
+}
+
+$('llm-provider').addEventListener('change', () => {
+  [$('llm-base-url').value, $('llm-model').value] = LLM_DEFAULTS[$('llm-provider').value];
+});
+
+$('labels-settings').addEventListener('click', () => showPage('settings'));
+
+/* 保存并试一下：连得上就接着给没有中文名的技能起名。 */
+$('llm-form').addEventListener('submit', event => {
+  event.preventDefault();
+  withBusy($('llm-save'), '正在保存并测试…', async () => {
+    const unlock = lockControls(['#llm-form input', '#llm-form select', '#llm-clear']);
+    labelsAutoAttempted = true;
+    try {
+      await api('/api/settings/llm', {...llmBody(), api_key: $('llm-key').value});
+      $('llm-key').value = '';
+      const result = await api('/api/settings/llm/test', {});
+      $('llm-message').textContent = result.message;
+      toast({text: result.message, tone: result.ok ? 'ok' : 'error'});
+      await refreshTable(true);
+      if (result.ok && state.table.labels_pending) startLabels('missing');
+    } catch (error) {
+      $('llm-message').textContent = error.message;
+      toast({text: error.message, tone: 'error'});
+    } finally {
+      unlock();
+      await refreshSettings();
+    }
+  });
+});
+
+$('llm-clear').addEventListener('click', async event => {
+  const ok = await confirmDialog({
+    title: '删除已保存的 key？',
+    lines: ['删除后不会再自动给技能起名，已经整理好的中文名会保留。'],
+    okText: '删除 key',
+  });
+  if (!ok) return;
+  await withBusy(event.currentTarget, '正在删除…', async () => {
+    try {
+      await api('/api/settings/llm', {...llmBody(), clear_key: true});
+      $('llm-key').value = '';
+      await refreshTable(true);
+      await refreshSettings();
+      toast({text: '已删除 key。'});
+    } catch (error) {
+      toast({text: error.message, tone: 'error'});
+    }
+  });
+});
+
+/* 起中文名在后台跑，进度显示在页头任务条上。 */
+async function startLabels(mode) {
+  if (labelsRunning) return;
+  labelsRunning = true;
+  labelsAutoAttempted = true;
+  renderLabelCounts();
+  setTask('labels', {text: '正在准备技能名单…'});
+  try {
+    const progress = await api('/api/labels/progress');
+    if (!progress.running) await api('/api/labels/run', {mode});
+    pollLabels();
+  } catch (error) {
+    labelsRunning = false;
+    renderLabelCounts();
+    setTask('labels', {text: error.message, tone: 'error', retry: () => startLabels('missing')});
+  }
+}
+
+async function pollLabels() {
+  try {
+    const progress = await api('/api/labels/progress');
+    if (progress.running) {
+      setTask('labels', progress.total
+        ? {text: `正在给技能起中文名（已整理 ${progress.done}/${progress.total}）`, ratio: progress.done / progress.total}
+        : {text: '正在准备技能名单…'});
+      setTimeout(pollLabels, 1000);
+      return;
+    }
+    labelsRunning = false;
+    await refreshTable(true);
+    if (progress.error) throw new Error(progress.error);
+    clearTask('labels');
+    toast({text: progress.message});
+  } catch (error) {
+    labelsRunning = false;
+    renderLabelCounts();
+    setTask('labels', {text: error.message, tone: 'error', retry: () => startLabels('missing')});
+    toast({text: error.message, tone: 'error'});
+  }
+}
+
+$('labels-missing').addEventListener('click', () => startLabels('missing'));
+
+$('labels-all').addEventListener('click', async () => {
+  const ok = await confirmDialog({
+    title: '重新整理全部中文名？',
+    lines: ['会替换现在全部中文名和分组，原来的会留一份备份。'],
+    okText: '重新整理全部',
+  });
+  if (ok) startLabels('all');
+});
 
 async function refreshLog() {
   try {
@@ -845,7 +1080,7 @@ function entriesFor(name) {
 function renderDetail() {
   const skill = state.table?.skills.find(s => s.name === state.detail);
   if (!skill) { closeDetail(); return; }
-  $('detail-title').textContent = skill.name;
+  $('detail-title').textContent = skill.title || skill.name;
   const usage = state.usageIndex.get(skill.name);
   const coverage = state.usage?.coverage || {};
 
@@ -877,14 +1112,18 @@ function renderDetail() {
 
   const options = (state.table?.skills || [])
     .filter(s => s.name !== skill.name && !skill.requires.includes(s.name))
-    .map(s => `<option value="${escape(s.name)}">${escape(s.name)}</option>`).join('');
+    .map(s => `<option value="${escape(s.name)}">${escape(s.title ? `${s.title}（${s.name}）` : s.name)}</option>`).join('');
 
   $('detail-body').innerHTML = `
+    ${skill.title ? `<p class="detail-id">${escape(skill.name)}</p>` : ''}
     <div class="detail-tags">
       ${skill.local_modified ? '<span class="tag tag-warn">你改过</span>' : '<span class="tag tag-quiet">和刚装进来时一样</span>'}
       ${skill.source_label ? `<span class="tag tag-quiet">${escape(skill.source_label)}</span>` : ''}
       ${disabled ? '<span class="tag tag-warn">Codex 里停用了</span>' : ''}
     </div>
+    ${skill.summary ? `<p class="detail-summary">${escape(skill.summary)}</p>
+    <h3 class="sub-title">原文说明</h3>
+    <p class="item-note">助手看到的是这段原文，“说明字数”也按它算。</p>` : ''}
     <p class="detail-desc">${escape(skill.description)}</p>
     <dl class="detail-list">
       <dt>来源</dt><dd>${escape(skill.source_label || '没记录')}</dd>
@@ -905,7 +1144,7 @@ function renderDetail() {
 
     <h3 class="sub-title">需要的技能</h3>
     <ul class="dep-list">
-      ${skill.requires.map(name => `<li><span>${escape(name)}</span>
+      ${skill.requires.map(name => `<li><span>${nameHtml(name)}</span>
         <button class="btn btn-small" data-dep-remove="${escape(skill.name)}" data-dep-name="${escape(name)}">删除</button></li>`).join('')
         || '<li><span class="item-note">暂时不需要别的技能。</span></li>'}
     </ul>
@@ -952,7 +1191,7 @@ $('detail-body').addEventListener('click', async event => {
     if (!requires) return;
     const ok = await confirmDialog({
       title: '添加需要的技能',
-      lines: [`${addName} 需要 ${requires}。需要它的助手会一起分到这个技能。`],
+      lines: [`${titleOf(addName)} 需要 ${titleOf(requires)}。需要它的助手会一起分到这个技能。`],
       groups: [{label: '这次会动到', items: [{name: addName}, {name: requires}]}],
       note: '可以撤销。', okText: '添加',
     });
@@ -961,7 +1200,7 @@ $('detail-body').addEventListener('click', async event => {
   } else if (removeName) {
     const ok = await confirmDialog({
       title: '删除这条依赖',
-      lines: [`不再认为 ${removeName} 需要 ${button.dataset.depName}。现有的分配保持不变。`],
+      lines: [`不再认为 ${titleOf(removeName)} 需要 ${titleOf(button.dataset.depName)}。现有的分配保持不变。`],
       groups: [{label: '这次会动到', items: [{name: removeName}, {name: button.dataset.depName}]}],
       note: '可以撤销。', okText: '删除',
     });
@@ -1175,7 +1414,7 @@ function renderUpdates(review) {
   const other = review.skills.filter(row => !shownInUpdates(row));
   $('updates-other-box').hidden = !other.length && !review.lark;
   $('updates-other').innerHTML = (review.lark ? `<p><strong>飞书工具</strong> · ${escape(review.lark.message || '')}</p>` : '')
-    + other.map(row => `<p><strong>${escape(row.name)}</strong> · ${escape(row.status)}${row.error ? ' · ' + escape(row.error) : ''}</p>`).join('');
+    + other.map(row => `<p><strong>${nameHtml(row.name)}</strong> · ${escape(row.status)}${row.error ? ' · ' + escape(row.error) : ''}</p>`).join('');
 
   $('updates-check').disabled = review.running || updateState.busy || Boolean(writeBusy);
   renderUpdatesActionBar();
@@ -1197,7 +1436,7 @@ function updateRowHtml(row) {
       <label class="check"><input type="checkbox" data-update-skill="${escape(row.name)}"
         ${updateState.selected.has(row.name) ? 'checked' : ''} ${canAct && !row.blocked_reason ? '' : 'disabled'}
         aria-label="${escape('更新 ' + row.name)}"></label>
-      <span class="update-title"><strong>${escape(row.name)}</strong>${tag}</span>
+      <span class="update-title"><strong>${nameHtml(row.name)}</strong>${tag}</span>
       <span class="update-meta item-end">${escape(row.status)}</span>
     </div>
     <p class="update-meta">来源：${escape(row.source?.label || '没记录')}${row.updated_at ? ' · 上游更新：' + escape(friendlyDate(row.updated_at)) : ''}</p>
@@ -1462,7 +1701,7 @@ function renderCleanup() {
   $('cleanup-rows').innerHTML = view.candidates.map(row => `<tr>
     <td class="col-check"><label class="check-hit"><input type="checkbox" data-cleanup="${escape(row.name)}"
       aria-label="${escape('清理 ' + row.name)}" ${state.cleanupSelected.has(row.name) ? 'checked' : ''} ${view.write_allowed && !writeBusy ? '' : 'disabled'}></label></td>
-    <td><strong>${escape(row.name)}</strong></td>
+    <td><strong>${nameHtml(row.name)}</strong></td>
     <td>${escape((row.assigned_agents || []).map(id => agentName(id)).join('、') || '没分配')}</td>
     <td class="col-last">${escape(lastUseText(row))}</td>
     <td class="col-num">${number(row.description_chars)}</td>
@@ -1475,7 +1714,7 @@ function renderCleanup() {
 
   $('withdrawn-list').innerHTML = view.withdrawn.map(row => `<div class="item-row">
     <div>
-      <div class="item-title">${escape(row.name)}</div>
+      <div class="item-title">${nameHtml(row.name)}</div>
       <div class="item-note">原来分配给 ${escape((row.previous_agents || []).map(id => agentName(id)).join('、') || '没有记录')}${row.withdrawn_at ? ' · ' + escape(new Date(row.withdrawn_at).toLocaleDateString('zh-CN')) : ''}</div>
     </div>
     <span class="item-end"><button class="btn btn-small" data-restore-withdrawn="${escape(row.name)}" ${view.write_allowed && !writeBusy ? '' : 'disabled'}>恢复原分配</button></span>
@@ -1923,7 +2162,7 @@ async function loadUsage() {
 
 function renderFooter() {
   const generated = state.inventory?.generated_at;
-  $('footer-note').textContent = '关掉全部看板页面后，程序会在 30 秒内退出；正在检查更新时会等检查完成。'
+  $('footer-note').textContent = '关掉全部看板页面后，程序会在 30 秒内退出；正在检查更新或起中文名时，会等任务完成。'
     + (generated ? `盘点时间：${new Date(generated).toLocaleString('zh-CN')}。` : '');
 }
 

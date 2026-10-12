@@ -2,3 +2,8 @@ __pycache__/
 *.pyc
 work/
 .playwright-cli/
+.DS_Store
+.env
+.env.*
+.skill-pilot/
+settings.json

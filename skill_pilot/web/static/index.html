@@ -21,6 +21,7 @@
       <button class="nav-item" data-page="cleanup">清理</button>
       <button class="nav-item" data-page="log">操作记录</button>
       <button class="nav-item nav-quiet" data-page="diagnostics">诊断与备份</button>
+      <button class="nav-item nav-quiet" data-page="settings">设置</button>
     </nav>
     <span id="mode-badge" class="tag tag-quiet">正在读取</span>
   </div>
@@ -64,7 +65,9 @@
       </span>
     </div>
 
-    <p id="skills-count" class="muted"></p>
+    <p class="skills-count-line"><span id="skills-count" class="muted"></span>
+      <button id="skills-expand" type="button" class="link-btn" hidden>全部展开</button></p>
+    <p id="labels-hint" class="muted" hidden>去「<button id="labels-settings" class="link-btn">设置</button>」填好 AI 服务，就能自动给技能起中文名、按用途分组。</p>
 
     <div class="table-wrap">
       <table class="grid" id="skills-table">
@@ -217,10 +220,32 @@
       </details>
     </details>
   </section>
+  <section id="page-settings" class="page-section" hidden>
+    <h2 class="section-title">AI 服务</h2>
+    <form id="llm-form" class="settings-form">
+      <label for="llm-provider">服务商</label>
+      <select id="llm-provider" class="input">
+        <option value="deepseek">DeepSeek</option><option value="qwen">通义千问</option>
+        <option value="kimi">Kimi</option><option value="glm">智谱</option>
+        <option value="openai">OpenAI</option><option value="other">其他（自己填）</option>
+      </select>
+      <label for="llm-base-url">服务地址</label><input id="llm-base-url" type="url" class="input" required>
+      <label for="llm-model">模型</label><input id="llm-model" class="input" required>
+      <label for="llm-key">API key</label><input id="llm-key" type="password" class="input" autocomplete="off" aria-describedby="llm-note">
+      <p id="llm-note" class="muted">会把每个技能的名字和说明发给你选的这家 AI 服务，不发其他文件。key 只存在这台电脑上。</p>
+      <p class="row-wrap"><button id="llm-save" class="btn btn-primary">保存并试一下</button>
+        <button id="llm-clear" type="button" class="link-btn" hidden>删除 key</button></p>
+      <p id="llm-message" class="muted" role="status"></p>
+    </form>
+    <h2 class="section-title">技能中文名</h2>
+    <p id="labels-count" class="muted" role="status"></p>
+    <p class="row-wrap"><button id="labels-missing" class="btn" hidden>给剩下的技能起名</button>
+      <button id="labels-all" class="btn">重新整理全部</button></p>
+  </section>
 </main>
 
 <footer class="footer">
-  <p id="footer-note">关掉全部看板页面后，程序会在 30 秒内退出；正在检查更新时会等检查完成。</p>
+  <p id="footer-note">关掉全部看板页面后，程序会在 30 秒内退出；正在检查更新或起中文名时，会等任务完成。</p>
 </footer>
 
 <div id="panel-scrim" class="scrim" hidden></div>

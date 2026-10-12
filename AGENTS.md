@@ -6,12 +6,12 @@
 
 - 用户不是程序员。界面、确认框、报错、给用户的回复一律中文大白话，不出现 symlink、diff、git、TOML、hash 这类词。
 - 最初要解决的四个问题：各 agent 分别管技能；更新不用专门开对话；同一技能多份副本导致版本冲突；装了什么不知道、不用的占上下文。新功能先问是否服务于这四个问题之一。
-- **做减法**：能删就删，不为假想需求加功能、加配置、加 AI 调用。默认流程不调用 AI，AI 只作可选按钮。
+- **做减法**：能删就删，不为假想需求加功能、加配置、加 AI 调用。只有用户在设置里填了 AI 服务的 key，才会自动调用它给技能起中文名和分组；其余 AI 功能仍只作可选按钮。
 - 用户不想逐条确认：能由规则或证据决定的不要做成待确认项；批量操作默认全选，让用户只挑例外。
 
 ## 真实数据与安全边界
 
-- 真实数据：`~/.skill-pilot/`（`store/` 技能正本 git 仓库、`bases/`、`registry.json`、`agents.json`、`usage.sqlite`、`logs/`、`backups/`），四个技能根 `~/.codex/skills`、`~/.agents/skills`（Codex 与 DSH 共读）、`~/.claude/skills`、`~/.gemini/config/skills`，以及 `~/.codex/config.toml` 的 `[skills] config`。
+- 真实数据：`~/.skill-pilot/`（`store/` 技能正本 git 仓库、`bases/`、`registry.json`、`agents.json`、`usage.sqlite`、`logs/`、`backups/`、`labels.json` 中文名与分组、`settings.json` 含 API key：不复制进模拟 home、不进备份和日志、不在回复里出现），四个技能根 `~/.codex/skills`、`~/.agents/skills`（Codex 与 DSH 共读）、`~/.claude/skills`、`~/.gemini/config/skills`，以及 `~/.codex/config.toml` 的 `[skills] config`。
 - 永远不碰：`~/.claude/skills/synced/`（Claude 桌面 app 自管）、`~/.codex/skills/.system/`、各家插件和内置目录、`~/.agents/.skill-lock.json`（只读）。
 - 开发和测试只用系统临时目录里的模拟 home（`scripts/make-fake-home.py`；`tests/__init__.py` 断言目标 home 在临时目录）。对真实 home 运行本工具一律带 `SKILL_PILOT_READ_ONLY=1`。
 - 对真实技能库做分配、更新、清理、改来源、撤销，必须是用户在当次对话里明确要求的；优先让用户自己在看板上点。
@@ -33,6 +33,7 @@
 | `scan.py`、`store.py`、`sync.py` | 盘点、统一仓库与迁移备份、按分配表对账链接 |
 | `operations.py`、`codex_config.py` | 分配、依赖、安装、收编、操作记录与撤销；Codex 停用条目只增删工具自己加的 |
 | `updates.py`、`sources/`、`normalization.py` | 检查更新（后台任务、逐条结果）、GitHub/飞书来源、嵌套 SKILL.md 改名 |
+| `labels.py` | 本机 AI 服务设置、中文名与分组、分批整理与安全保存 |
 | `usage/`、`cleanup.py` | 各 agent 用量账本、60 天清理与恢复 |
 | `web/` | 本机看板（`127.0.0.1` 随机端口加口令；`static/` 为前端） |
 | `skill/skill-pilot/` | 装给各 agent 的 `skill-pilot` 技能 |
@@ -41,4 +42,4 @@
 
 ## Git
 
-本仓库在本机，没有远程。只在用户要求时提交，只暂存本次相关文件，不 push。
+本仓库连接 GitHub 私有仓库 [Simonlau4/skill-pilot](https://github.com/Simonlau4/skill-pilot)。只在用户要求时提交或推送，只暂存本次相关文件。

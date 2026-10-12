@@ -228,6 +228,30 @@ class AdditionalOperationsTests(unittest.TestCase):
         (self.home/'.codex/skills/broken').symlink_to(self.home/'missing')
         self.assertEqual(operations.new_skills(self.home,operations.load(self.home)[2]),[])
 
+    def test_table_carries_display_labels_and_groups(self):
+        (self.home/'.skill-pilot/labels.json').write_text(json.dumps({'groups': [
+            {'name': '提问', 'skills': {'grilling': ['追问想法', '帮你把想法问清楚']}}]}))
+        view=operations.table(self.home)
+        rows={row['name']:row for row in view['skills']}
+        self.assertTrue(rows['grilling']['title'] and rows['grilling']['summary'])
+        self.assertEqual((rows['other']['title'],rows['other']['summary']),('',''))
+        self.assertTrue(any('grilling' in group['skills'] for group in view['groups']))
+
+    def test_skill_labels_list_each_skill_once_with_title_and_summary(self):
+        path=self.home/'.skill-pilot/labels.json'
+        path.write_text(json.dumps({'groups': [{'name': '提问', 'skills': {
+            'grilling': ['追问想法', '把想法问清楚'], 'grill-me': ['提问入口', '启动追问']}}]}))
+        groups=operations.labels.read(self.home)
+        names=[name for group in groups for name in group['skills']]
+        self.assertEqual(len(names),len(set(names)))
+        group_names=[group['name'] for group in groups]
+        self.assertEqual(len(group_names),len(set(group_names)))
+        self.assertNotIn('未分组',group_names)  # 看板用它放没写进对照表的技能
+        for group in groups:
+            for name,label in group['skills'].items():
+                self.assertEqual(len(label),2,name)
+                self.assertTrue(all(label),name)
+
     @patch.object(operations, 'curated_dependencies', REAL_CURATED)
     def test_curated_writer_dependencies_expand_transitively_without_prompts(self):
         names=['ascentiz-blog-writer','natural-text-writing','unslop','stss','ascentiz-blog-editor']

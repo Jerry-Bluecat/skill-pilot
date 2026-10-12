@@ -14,7 +14,7 @@ from .store import (PROJECT, _restore, backup, check_links, git_tree, guard, phy
                     target_home, transaction, write_allowed, write_json)
 from .sync import assignment_entries, reconcile_assignments, visibility
 from .sources import github, normalize
-from . import normalization
+from . import labels, normalization
 
 PROFILES_BY_ID = {p['id']: p for p in PROFILES}
 DEPENDENCY_DECISIONS = PROJECT / 'docs/dependency-decisions.json'
@@ -100,11 +100,15 @@ def table(home=None, database=None):
     home, registry, agents = load(home)
     from .usage import recorded
     last_used = recorded(database or home/'.skill-pilot/usage.sqlite')
+    # 看板上的中文名和分组只用于显示；没写的技能显示原名。
+    groups = labels.read(home)
+    display = {name: label for group in groups for name, label in group['skills'].items()}
     rows = []
     for name, skill in sorted(registry['skills'].items()):
         path = home / '.skill-pilot/store' / name
         info = metadata((path / 'SKILL.md').read_text())
-        rows.append({'name': name, 'description': info.get('description', ''),
+        title, summary = display.get(name, ('', ''))
+        rows.append({'name': name, 'title': title, 'summary': summary, 'description': info.get('description', ''),
                      'description_chars': len(info.get('description', '')), 'source': skill['source'],
                      'source_label': normalize(skill['source'])['label'],
                      'assigned_agents': skill['assigned_agents'], 'requires': skill.get('requires', []),
@@ -115,7 +119,10 @@ def table(home=None, database=None):
                         'activation': '目录改变后会动态刷新' if a in {'claude', 'dsh'} else '新会话生效',
                         'count': sum(a in s['assigned_agents'] for s in rows),
                         'description_chars': sum(s['description_chars'] for s in rows if a in s['assigned_agents'])}
-                       for a in agents], 'new_skills': new_skills(home, agents)}
+                       for a in agents], 'new_skills': new_skills(home, agents),
+            'groups': [{'name': group['name'], 'skills': list(group['skills'])} for group in groups],
+            'labels_pending': sum(not row['title'] for row in rows),
+            'llm_configured': bool(labels.settings(home).get('api_key'))}
 
 
 def history(home=None):
