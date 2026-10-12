@@ -3,90 +3,281 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Skill Pilot · 技能盘点</title>
-  <style>
-    :root{color-scheme:light;--paper:#f6f5f1;--ink:#232b27;--muted:#647169;--line:#d8ded7;--accent:#286248}
-    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}
-    main{max-width:1280px;margin:0 auto;padding:48px 36px 70px}header{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:28px}
-    h1{font-size:38px;font-weight:650;letter-spacing:-1px;line-height:1.2;margin:10px 0}h2{font-size:23px;margin:30px 0 16px}h3{font-size:18px;margin:0 0 8px}p{margin:8px 0}.muted{color:var(--muted)}
-    .eyebrow{font-size:12px;font-weight:700;letter-spacing:2px;color:var(--accent)}.badge{display:inline-block;padding:3px 9px;border:1px solid var(--line);border-radius:4px;font-size:12px;background:#fff}
-    .notice{border-left:3px solid var(--accent);padding:12px 18px;background:#eaf0e8;margin:20px 0}.notice.warn{border-color:#ad6a25;background:#f4ebdd}.cards{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line);border-left:1px solid var(--line);margin:22px 0}
-    .card{padding:22px;background:#fff;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}.count{font-size:42px;font-weight:600;letter-spacing:-2px;line-height:1.2;margin:12px 0}.count span{font-size:14px;font-weight:400;letter-spacing:0}.card p{font-size:13px}
-    nav{display:flex;gap:6px;border-bottom:1px solid var(--line);padding:8px 0;flex-wrap:wrap;position:sticky;top:0;background:var(--paper);z-index:1}button{font:inherit;cursor:pointer;border:0;background:transparent;padding:9px 14px;border-radius:4px;color:var(--muted)}button[aria-selected=true]{background:var(--ink);color:#fff}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
-    .toolbar{display:flex;gap:12px;align-items:center;margin:20px 0;flex-wrap:wrap}input,select{font:inherit;background:#fff;border:1px solid var(--line);padding:9px 12px;border-radius:4px}input[type=search]{flex:1;min-width:180px}input[type=checkbox]{accent-color:var(--accent)}
-    .update-comparisons{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;max-height:420px;overflow:auto}
-    .table-wrap{overflow:auto}table{border-collapse:collapse;width:100%;background:#fff;text-align:left}th,td{border-bottom:1px solid var(--line);padding:12px 16px;vertical-align:top}th{font-size:12px;color:var(--muted);font-weight:600;background:#eceee8}td small{display:block;color:var(--muted);font-size:12px}.path{overflow-wrap:anywhere;font-size:12px;color:var(--muted)}.skill-name{font-weight:600;overflow-wrap:anywhere}details{border-bottom:1px solid var(--line);padding:16px 0}summary{cursor:pointer;font-weight:600}summary small{font-weight:400;color:var(--muted);margin-left:12px}.version{border-left:2px solid var(--line);padding:6px 16px;margin:12px 0}.empty{padding:24px;background:#fff;color:var(--muted)}footer{border-top:1px solid var(--line);margin-top:32px;padding-top:16px;font-size:12px;color:var(--muted)}[hidden]{display:none!important}
-    @media(max-width:900px){.cards{grid-template-columns:repeat(2,1fr)}main{padding:28px 20px}h1{font-size:32px}}@media(max-width:520px){header{display:block}.cards{grid-template-columns:1fr}.toolbar{align-items:stretch}th,td{padding:10px}}
-  </style>
+  <title>Skill Pilot</title>
+  <link rel="stylesheet" href="/app.css?token=__SESSION_TOKEN__">
   <script defer src="/app.js?token=__SESSION_TOKEN__"></script>
 </head>
 <body>
-<main>
-  <header><div><div class="eyebrow">SKILL PILOT / 本机盘点</div><h1>看看助手有哪些技能</h1><p class="muted">技能数量、说明占用和版本差异，一页查清楚。</p></div><span id="mode-badge" class="badge">正在读取</span></header>
-  <div id="connection" class="notice" role="status">正在读取本机技能目录…</div>
-  <div id="updates-progress" class="notice" role="status" aria-atomic="true" hidden></div>
-  <div id="usage-progress" class="notice" role="status" hidden></div>
-  <div id="global-new-skills" class="notice warn" hidden><span id="global-new-text"></span> <button id="global-new-open" class="badge">查看并收编</button></div>
-  <div id="cards" class="cards"></div>
-  <p id="basis" class="muted"></p>
-  <nav aria-label="盘点内容"><button data-panel="inventory" aria-selected="true">技能清单</button><button data-panel="conflicts" aria-selected="false">版本差异 <span id="conflict-count"></span></button><button data-panel="agents" aria-selected="false">助手与目录</button><button data-panel="candidates" aria-selected="false">其他发现</button><button data-panel="assignments" aria-selected="false">勾选表</button><button data-panel="updates" aria-selected="false">检查更新</button><button data-panel="usage" aria-selected="false">用量</button><button data-panel="cleanup" aria-selected="false">清理</button><button data-panel="withdrawn" aria-selected="false">已撤下</button><button data-panel="operation-log" aria-selected="false">操作记录</button><button data-panel="migration" aria-selected="false">首次迁移</button></nav>
-  <section id="inventory"><div class="toolbar"><input id="search" type="search" aria-label="搜索技能" placeholder="搜索技能名称或说明"><select id="root-filter" aria-label="选择目录"><option value="">全部用户技能目录</option></select><label><input id="include-readonly" type="checkbox"> 同时看内置和插件</label></div><p id="inventory-count" class="muted"></p><div class="table-wrap"><table><thead><tr><th>技能</th><th>放在哪里</th><th>文件状态</th><th>说明字数</th></tr></thead><tbody id="skills"></tbody></table></div></section>
-  <section id="conflicts" hidden><h2>同名技能，内容不一样</h2><p class="muted">这里只列出差异。相同内容已经归在一起；正式迁移前再确认保留哪份。</p><div id="conflict-list"></div></section>
-  <section id="agents" hidden><h2>助手与扫描目录</h2><p class="muted">有内置档案表示知道如何盘点，尚未执行接入或迁移。</p><div id="agent-list"></div><h2>各目录数量</h2><div class="table-wrap"><table><thead><tr><th>目录</th><th>用途</th><th>技能入口</th><th>不可用链接</th></tr></thead><tbody id="root-list"></tbody></table></div></section>
-  <section id="candidates" hidden><h2>其他发现</h2><p id="discovery-note" class="muted"></p><div id="candidate-list"></div></section>
-  <section id="migration" hidden>
-    <h2>把技能收进统一仓库</h2><p id="migration-mode" class="muted"></p>
-    <div id="migration-error" class="notice warn" role="alert" hidden></div>
-    <div id="migration-select"><h3>1. 选择要接入的助手</h3><div id="migration-agents" class="toolbar"></div><p class="muted">Codex 和 DSH 共用一个技能目录，本次一起接入。其他助手可以单独选择。</p><button id="migration-preview" class="badge">下一步：核对版本</button></div>
-    <div id="migration-review" hidden><h3>2. 核对保留哪份内容</h3><p id="migration-summary"></p><div id="migration-counts"></div><div id="migration-versions"></div><details><summary>名称与文件夹名称不同的技能</summary><div id="migration-names"></div><p>确认迁移即表示接受这些名称，原入口仍会保留。</p></details><details><summary>这些目录会保留原样</summary><div id="migration-skipped"></div></details><div class="toolbar"><button id="migration-back" class="badge">返回选择助手</button><button id="migration-apply" class="badge">确认迁移</button></div></div>
-    <div id="migration-complete" hidden><h3 id="migration-result">迁移完成</h3><p id="migration-result-detail"></p><button id="migration-restore" class="badge">一键还原到迁移前</button></div>
-    <details><summary>已有备份</summary><button id="migration-backups" class="badge">查看备份</button><div id="migration-backup-list"></div></details>
+
+<header class="topbar">
+  <div class="topbar-row">
+    <div class="brand">
+      <h1>Skill Pilot</h1>
+      <p class="brand-note">本机四个助手的技能，都在这里管</p>
+    </div>
+    <nav class="nav" aria-label="主导航">
+      <button class="nav-item" data-page="skills" aria-current="page">技能</button>
+      <button class="nav-item" data-page="updates">检查更新</button>
+      <button class="nav-item" data-page="cleanup">清理</button>
+      <button class="nav-item" data-page="log">操作记录</button>
+      <button class="nav-item nav-quiet" data-page="diagnostics">诊断与备份</button>
+    </nav>
+    <span id="mode-badge" class="tag tag-quiet">正在读取</span>
+  </div>
+
+  <div id="agent-summary" class="agent-summary" aria-label="各助手技能概况"></div>
+
+  <div id="task-bar" class="task-bar" role="status" aria-live="polite" hidden></div>
+
+  <div id="connection" class="banner banner-danger banner-topbar" role="alert" hidden>
+    看板已关闭或连接中断。重新双击 Skill Pilot 即可继续。
+  </div>
+</header>
+
+<main class="page">
+
+  <!-- ========== 技能页 ========== -->
+  <section id="page-skills" class="page-section">
+    <div id="new-banner" class="banner banner-warn" hidden>
+      <div class="banner-row">
+        <span id="new-text"></span>
+        <span class="banner-actions">
+          <button id="new-absorb" class="btn btn-small">一键收编</button>
+          <button id="new-toggle" class="btn btn-small btn-quiet" aria-expanded="false">看看是哪些</button>
+        </span>
+      </div>
+      <div id="new-list" class="banner-list" hidden></div>
+    </div>
+
+    <div class="toolbar">
+      <input id="skills-search" type="search" class="input input-search" placeholder="搜索技能名称或说明" aria-label="搜索技能名称或说明">
+      <div id="skills-filters" class="segmented" role="group" aria-label="筛选技能">
+        <button class="seg" data-filter="all" aria-pressed="true">全部</button>
+        <button class="seg" data-filter="unassigned" aria-pressed="false">没分配给任何助手</button>
+        <button class="seg" data-filter="stale" aria-pressed="false">很久没用</button>
+        <button class="seg" data-filter="modified" aria-pressed="false">你改过</button>
+        <button class="seg" data-filter="dependency" aria-pressed="false">有依赖</button>
+      </div>
+      <span class="toolbar-end">
+        <button id="skills-refresh" class="btn">重新盘点</button>
+        <button id="skills-install" class="btn btn-primary">安装技能</button>
+      </span>
+    </div>
+
+    <p id="skills-count" class="muted"></p>
+
+    <div class="table-wrap">
+      <table class="grid" id="skills-table">
+        <thead><tr id="skills-head"></tr></thead>
+        <tbody id="skills-rows"></tbody>
+      </table>
+    </div>
+    <p id="skills-note" class="foot-note"></p>
   </section>
-  <section id="assignments" hidden>
-    <h2>决定哪个助手能看到技能</h2>
-    <div id="manage-error" class="notice warn" role="alert" hidden></div>
-    <div class="toolbar"><button id="manage-refresh" class="badge">重新盘点</button><button id="install-open" class="badge">安装技能</button></div>
-    <div id="new-skills-notice" class="notice" hidden><p id="new-skills-text"></p><button id="absorb-all" class="badge">一键收编</button><div id="new-skills-list"></div></div>
-    <div id="assignment-counts" class="cards"></div>
-    <div class="toolbar"><input id="assignment-search" type="search" placeholder="搜索技能" aria-label="搜索分配技能"></div>
-    <div class="table-wrap"><table><thead id="assignment-head"></thead><tbody id="assignment-rows"></tbody></table></div>
-    <div id="pending-bar" class="notice" style="position:sticky;bottom:0"><p id="pending-summary">还没有待应用的改动。</p><p id="pending-reasons"></p><button id="assignment-apply" class="badge" disabled>应用</button><button id="assignment-discard" class="badge">取消待应用</button></div>
-    <div id="incoming-conflicts" hidden><h3>同名技能需要先对比</h3><p>现有内容会保留。请先看两份内容的差别。</p><div id="incoming-comparisons"></div></div>
+
+  <!-- ========== 检查更新页 ========== -->
+  <section id="page-updates" class="page-section" hidden>
+    <div class="center-block">
+      <button id="updates-check" class="btn btn-primary btn-large">检查更新</button>
+      <p class="muted">只检查，不会自动安装。检查大约需要半分钟，过程中可以切到别的页面。</p>
+    </div>
+    <p id="updates-summary" class="muted" role="status"></p>
+    <div id="updates-list" class="update-list"></div>
+    <details id="updates-other-box" class="fold" hidden>
+      <summary>其他技能（没有更新或没查清楚）</summary>
+      <div id="updates-other" class="list"></div>
+    </details>
   </section>
-  <section id="operation-log" hidden><h2>操作记录</h2><p class="muted">每次写入都会记录在这里。撤销会恢复技能内容、分配入口和工具添加的停用设置。</p><button id="log-refresh" class="badge">刷新记录</button><div id="operation-list"></div></section>
-  <section id="updates" hidden>
-    <h2>检查技能更新</h2><p class="muted">按下按钮才检查。勾选要装的新版；你改过的技能默认用上游的，也可以选保留我的。每批可以从操作记录撤销。</p>
-    <button id="updates-check" class="badge">检查更新</button><p id="updates-status" role="status">还没有检查。</p>
-    <div id="updates-error" class="notice warn" role="alert" hidden></div>
-    <div id="updates-list"></div><details><summary>其他技能</summary><div id="updates-other"></div></details>
-    <div class="toolbar"><button id="updates-apply" class="badge" disabled>更新选中的</button><button id="updates-all" class="badge" disabled>更新全部已查出的</button></div>
+
+  <!-- ========== 清理页 ========== -->
+  <section id="page-cleanup" class="page-section" hidden>
+    <div id="cleanup-savings" class="savings"></div>
+    <p class="muted">名单默认全选。取消勾选要留的，视为今天用过，60 天后才会再出现。清理只从助手撤下，文件留在仓库。</p>
+    <p id="cleanup-status" class="muted" role="status"></p>
+    <div class="table-wrap table-wrap-mid">
+      <table class="grid">
+        <thead>
+          <tr>
+            <th class="col-check">清理</th>
+            <th>技能</th>
+            <th>分配给谁</th>
+            <th>最近使用</th>
+            <th class="col-num">说明字数</th>
+          </tr>
+        </thead>
+        <tbody id="cleanup-rows"></tbody>
+      </table>
+    </div>
+
+    <h2 class="section-title">已撤下的技能</h2>
+    <p class="muted">文件仍在仓库里。恢复会重新分配给原来的助手，可以撤销。</p>
+    <p class="row-wrap">
+      <button id="withdrawn-refresh" class="btn btn-small">刷新列表</button>
+      <button id="withdrawn-check" class="btn btn-small">检查已撤下技能的更新</button>
+    </p>
+    <div id="withdrawn-list" class="list"></div>
   </section>
-  <section id="usage" hidden>
-    <h2>技能用量</h2><p>同一会话里，同一技能只计一次。只记录真实调用或读取。</p>
-    <button id="usage-refresh" class="badge">更新用量</button><p id="usage-status" role="status">还没有统计。</p>
-    <div id="usage-coverage" class="notice"></div>
-    <div class="table-wrap"><table><thead><tr><th>技能</th><th>最近使用</th><th>近 30 天会话数</th></tr></thead><tbody id="usage-rows"></tbody></table></div>
+
+  <!-- ========== 操作记录页 ========== -->
+  <section id="page-log" class="page-section" hidden>
+    <p class="muted">每次写入都会记录在这里。撤销会恢复技能内容、分配入口和工具添加的停用设置。</p>
+    <p><button id="log-refresh" class="btn btn-small">刷新记录</button></p>
+    <ol id="log-list" class="timeline"></ol>
   </section>
-  <section id="cleanup" hidden>
-    <h2>清理长期不用的技能</h2><p>名单默认全选。取消勾选要留的，视为今天用过，60 天后才会再出现。清理只从助手撤下，文件留在仓库。</p>
-    <button id="cleanup-refresh" class="badge">更新清理名单</button><p id="cleanup-status" role="status">还没有统计。</p>
-    <div id="cleanup-error" class="notice warn" role="alert" hidden></div><div id="cleanup-coverage" class="notice"></div>
-    <div id="cleanup-savings" class="cards"></div>
-    <div class="table-wrap"><table><thead><tr><th>清理</th><th>技能</th><th>分配给谁</th><th>最近使用</th><th>描述字数</th></tr></thead><tbody id="cleanup-rows"></tbody></table></div>
-    <button id="cleanup-apply" class="badge" disabled>清理选中的 0 个</button>
+
+  <!-- ========== 诊断与备份页 ========== -->
+  <section id="page-diagnostics" class="page-section" hidden>
+    <p class="muted">这里是排查问题和恢复备份用的内容，平时不用管。各项默认收起。</p>
+
+    <details class="fold" id="diag-conflicts-box">
+      <summary>版本差异 <span id="conflict-count" class="tag tag-quiet"></span></summary>
+      <p class="muted">同名技能在不同位置内容不一样。相同内容已经归在一起。</p>
+      <div id="conflict-list" class="list"></div>
+    </details>
+
+    <details class="fold" id="diag-inventory-box">
+      <summary>助手与目录</summary>
+      <div class="toolbar">
+        <input id="inventory-search" type="search" class="input input-search" placeholder="搜索技能名称或说明" aria-label="搜索技能">
+        <label class="check"><input id="include-readonly" type="checkbox"> 同时看内置和插件</label>
+        <select id="root-filter" class="input" aria-label="选择目录">
+          <option value="">全部用户技能目录</option>
+        </select>
+      </div>
+      <p id="inventory-count" class="muted"></p>
+      <div class="table-wrap table-wrap-mid">
+        <table class="grid">
+          <thead>
+            <tr><th>技能</th><th>放在哪里</th><th>文件状态</th><th class="col-num">说明字数</th></tr>
+          </thead>
+          <tbody id="inventory-rows"></tbody>
+        </table>
+      </div>
+      <h3 class="sub-title">各目录数量</h3>
+      <div class="table-wrap table-wrap-mid">
+        <table class="grid">
+          <thead>
+            <tr><th>目录</th><th>用途</th><th class="col-num">技能入口</th><th class="col-num">不可用链接</th></tr>
+          </thead>
+          <tbody id="root-list"></tbody>
+        </table>
+      </div>
+      <h3 class="sub-title">助手</h3>
+      <div id="agent-list" class="list"></div>
+    </details>
+
+    <details class="fold" id="diag-candidates-box">
+      <summary>其他发现</summary>
+      <p id="discovery-note" class="muted"></p>
+      <div id="candidate-list" class="list"></div>
+    </details>
+
+    <details class="fold" id="diag-migration-box">
+      <summary>迁移与还原</summary>
+      <p id="migration-mode" class="muted"></p>
+      <div id="migration-error" class="banner banner-warn" role="alert" hidden></div>
+
+      <div id="migration-select">
+        <h3 class="sub-title">1. 选择要接入的助手</h3>
+        <div id="migration-agents" class="row-wrap"></div>
+        <p class="muted">Codex 和 DSH 共用一个技能目录，本次一起接入。其他助手可以单独选择。</p>
+        <button id="migration-preview" class="btn">下一步：核对版本</button>
+      </div>
+
+      <div id="migration-review" hidden>
+        <h3 class="sub-title">2. 核对保留哪份内容</h3>
+        <p id="migration-summary"></p>
+        <div id="migration-counts" class="list"></div>
+        <div id="migration-versions" class="list"></div>
+        <details class="fold fold-inner">
+          <summary>名称与文件夹名称不同的技能</summary>
+          <div id="migration-names"></div>
+          <p class="muted">确认迁移即表示接受这些名称，原入口仍会保留。</p>
+        </details>
+        <details class="fold fold-inner">
+          <summary>这些目录会保留原样</summary>
+          <div id="migration-skipped"></div>
+        </details>
+        <p class="row-wrap">
+          <button id="migration-back" class="btn">返回选择助手</button>
+          <button id="migration-apply" class="btn btn-primary">确认迁移</button>
+        </p>
+      </div>
+
+      <div id="migration-complete" hidden>
+        <h3 id="migration-result" class="sub-title">迁移完成</h3>
+        <p id="migration-result-detail"></p>
+        <button id="migration-restore" class="btn">一键还原到迁移前</button>
+      </div>
+
+      <details class="fold fold-inner">
+        <summary>已有备份</summary>
+        <p><button id="migration-backups" class="btn btn-small">查看备份</button></p>
+        <div id="migration-backup-list" class="list"></div>
+      </details>
+    </details>
   </section>
-  <section id="withdrawn" hidden>
-    <h2>已撤下的技能</h2><p>文件仍在仓库。恢复会重新分配给原来的助手，可以撤销。</p><button id="withdrawn-refresh" class="badge">刷新列表</button> <button id="withdrawn-check" class="badge">检查已撤下技能的更新</button>
-    <div id="withdrawn-error" class="notice warn" role="alert" hidden></div><div id="withdrawn-list"></div>
-  </section>
-  <dialog id="install-dialog" style="max-width:850px;width:90%;border:1px solid var(--line);padding:24px">
-    <h2>安装技能</h2><p>粘贴 GitHub 仓库或技能文件夹链接。只读取文件，不执行其中的程序。</p>
-    <div class="toolbar"><input id="install-url" type="url" style="flex:1" placeholder="https://github.com/作者/仓库" aria-label="技能仓库链接"><button id="install-inspect" class="badge">读取仓库</button></div>
-    <div id="install-message" role="status"></div><div id="install-skills"></div>
-    <h3>给哪些助手使用</h3><p class="muted">默认不分配；也可以安装后再在勾选表里选择。</p><div id="install-agents" class="toolbar"></div>
-    <div class="toolbar"><button id="install-apply" class="badge" disabled>安装选中的技能</button><button id="install-close" class="badge">关闭</button></div>
-  </dialog>
-  <footer id="footer">关掉全部看板页面后，程序会在 30 秒内退出；正在检查更新时会等检查完成。</footer>
 </main>
+
+<footer class="footer">
+  <p id="footer-note">关掉全部看板页面后，程序会在 30 秒内退出；正在检查更新时会等检查完成。</p>
+</footer>
+
+<div id="panel-scrim" class="scrim" hidden></div>
+
+<aside id="detail-panel" class="side-panel" aria-labelledby="detail-title" hidden>
+  <div class="side-panel-head">
+    <h2 id="detail-title">技能详情</h2>
+    <button id="detail-close" class="btn btn-small">关闭</button>
+  </div>
+  <div id="detail-body" class="side-panel-body"></div>
+</aside>
+
+<div id="action-bar" class="action-bar" hidden>
+  <div class="action-text">
+    <p id="action-summary"></p>
+    <p id="action-note" class="muted"></p>
+  </div>
+  <div id="action-buttons" class="action-buttons"></div>
+</div>
+
+<div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+
+<dialog id="confirm-dialog" class="dialog">
+  <form method="dialog" class="dialog-form">
+    <h2 id="confirm-title">确认操作</h2>
+    <div id="confirm-body" class="dialog-body"></div>
+    <div class="dialog-actions">
+      <button value="cancel" class="btn">取消</button>
+      <button value="ok" id="confirm-ok" class="btn btn-primary">确认</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="install-dialog" class="dialog dialog-wide">
+  <form method="dialog" class="dialog-form">
+    <h2>安装技能</h2>
+    <p class="muted">粘贴 GitHub 仓库或技能文件夹链接。只读取文件，不执行其中的程序。</p>
+    <div class="row-wrap">
+      <input id="install-url" type="url" class="input input-grow" placeholder="粘贴技能仓库的链接" aria-label="技能仓库链接">
+      <button id="install-inspect" type="button" class="btn">读取仓库</button>
+    </div>
+    <p id="install-message" role="status"></p>
+    <div id="install-skills" class="list"></div>
+    <h3 class="sub-title">给哪些助手使用</h3>
+    <p class="muted">默认不分配；也可以安装后再在技能页里勾选。</p>
+    <div id="install-agents" class="row-wrap"></div>
+    <div id="incoming-conflicts" hidden>
+      <h3 class="sub-title">同名技能需要先对比</h3>
+      <p class="muted">现有内容会保留。请先看两份内容的差别。</p>
+      <div id="incoming-comparisons" class="list"></div>
+    </div>
+    <div class="dialog-actions">
+      <button id="install-close" type="button" class="btn">关闭</button>
+      <button id="install-apply" type="button" class="btn btn-primary" disabled>安装选中的技能</button>
+    </div>
+  </form>
+</dialog>
+
 </body>
 </html>

@@ -144,10 +144,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(200, {"comparison": "\n".join(texts)})
             except (ValueError, OSError, StopIteration) as error:
                 self.reply(409, {"error": str(error) or "这个技能已不在预览里，请重新预览。"})
-        elif path in ("/", "/app.js"):
-            file = STATIC / ("index.html" if path == "/" else "app.js")
+        elif path in ("/", "/app.js", "/app.css"):
+            file = STATIC / ("index.html" if path == "/" else path.removeprefix("/"))
             body = file.read_bytes().replace(b"__SESSION_TOKEN__", self.server.token.encode())
-            self.reply(200, body, "text/html; charset=utf-8" if path == "/" else "text/javascript; charset=utf-8")
+            kind = {"html": "text/html", "js": "text/javascript", "css": "text/css"}[file.suffix.removeprefix(".")]
+            self.reply(200, body, kind + "; charset=utf-8")
         else:
             self.reply(404, {"error": "没有这个页面。"})
 
