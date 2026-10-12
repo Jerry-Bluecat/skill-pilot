@@ -1,0 +1,190 @@
+from tests import set_up_home
+import json
+import threading
+import tempfile
+import unittest
+import urllib.error
+import urllib.request
+from pathlib import Path
+from unittest.mock import patch
+
+from skill_pilot.web.server import Dashboard
+from skill_pilot.store import physical_state
+
+
+class WebTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="skill-pilot-web-")
+        self.addCleanup(self.temp.cleanup)
+        set_up_home(self, self.temp.name)
+        self.server = Dashboard({"read_only": True, "home": str(self.home)})
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": .05})
+        self.thread.start()
+        self.addCleanup(self.close)
+
+    def close(self):
+        self.server.shutdown()
+        self.thread.join()
+        self.server.server_close()
+
+    def request(self, path="/api/scan", headers=None, method="GET"):
+        request = urllib.request.Request(self.server.origin + path, headers=headers or {}, method=method)
+        try:
+            with urllib.request.urlopen(request) as response:
+                return response.status, response.read()
+        except urllib.error.HTTPError as error:
+            return error.code, error.read()
+
+    def test_token_host_and_origin(self):
+        self.assertEqual(self.request()[0], 403)
+        headers = {"X-Skill-Pilot-Token": self.server.token}
+        self.assertEqual(json.loads(self.request(headers=headers)[1]), {"read_only": True, "home": str(self.home)})
+        self.assertEqual(self.request(headers={**headers, "Host":"attacker.example"})[0], 403)
+        self.assertEqual(self.request(headers={**headers, "Origin":"https://attacker.example"})[0], 403)
+        self.assertEqual(self.request(headers={**headers, "Sec-Fetch-Site":"cross-site"})[0], 403)
+
+    def test_only_heartbeat_post_is_allowed(self):
+        headers = {"X-Skill-Pilot-Token": self.server.token, "Origin":self.server.origin}
+        self.assertEqual(self.request("/api/heartbeat", headers, "POST")[0], 200)
+        self.assertEqual(self.request("/api/assign", headers, "POST")[0], 405)
+        del headers["Origin"]
+        self.assertEqual(self.request("/api/heartbeat", headers, "POST")[0], 403)
+
+    def test_binds_loopback_and_has_no_static_path_traversal(self):
+        self.assertEqual(self.server.server_address[0], "127.0.0.1")
+        headers = {"X-Skill-Pilot-Token": self.server.token}
+        self.assertEqual(self.request("/../PLAN.md", headers)[0], 404)
+        self.assertEqual(self.request('/?token=' + self.server.token)[0], 200)
+
+
+class MigrationWebTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="skill-pilot-web-m2-")
+        self.addCleanup(self.temp.cleanup)
+        set_up_home(self, Path(self.temp.name))
+        for root, body in [(".codex/skills", "one"), (".gemini/config/skills", "two")]:
+            path = self.home / root / "sample"
+            path.mkdir(parents=True)
+            (path / "SKILL.md").write_text(f'---\nname: sample\ndescription: example\n---\n{body}\n')
+        self.server = Dashboard({"home": str(self.home)})
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": .05})
+        self.thread.start()
+        self.addCleanup(self.close)
+
+    def close(self):
+        self.server.shutdown()
+        self.thread.join()
+        self.server.server_close()
+
+    def request(self, path, body=None, extra=None):
+        headers = {"X-Skill-Pilot-Token": self.server.token, "Origin":self.server.origin, "Content-Type":"application/json"}
+        headers.update(extra or {})
+        data = json.dumps(body).encode() if body is not None else None
+        request = urllib.request.Request(self.server.origin + path, headers=headers, data=data)
+        try:
+            with urllib.request.urlopen(request) as response:
+                return response.status, json.load(response)
+        except urllib.error.HTTPError as error:
+            return error.code, json.load(error)
+
+    def test_writes_require_confirmation_and_same_origin(self):
+        status, plan = self.request('/api/migration/plan')
+        self.assertEqual(status, 200)
+        body = {"plan_id":plan['plan_id'],"agents":plan['agents']}
+        self.assertEqual(self.request('/api/migration/apply',body)[0],400)
+        self.assertEqual(self.request('/api/migration/apply',{**body,"confirmed":True},{"Origin":"http://attacker.example"})[0],403)
+        self.assertEqual(self.request('/api/migration/apply',{**body,"confirmed":True},{"Host":"attacker.example"})[0],403)
+        self.assertFalse((self.home/'.skill-pilot').exists())
+    def test_changed_plan_rejected_and_complete_compare_available(self):
+        _, plan = self.request('/api/migration/plan')
+        query = urllib.parse.urlencode({'agents':','.join(plan['agents']),'plan_id':plan['plan_id'],'name':'sample'})
+        status, result = self.request('/api/migration/compare?'+query)
+        self.assertEqual(status,200)
+        self.assertIn('SKILL.md',result['comparison'])
+        (self.home/'.codex/skills/sample/SKILL.md').write_text('changed')
+        status, result = self.request('/api/migration/apply',{"confirmed":True,"plan_id":plan['plan_id'],"agents":plan['agents']})
+        self.assertEqual(status,409)
+        self.assertIn('重新预览',result['error'])
+        self.assertFalse((self.home/'.skill-pilot').exists())
+
+    def test_changed_choice_applies_and_confirmed_restore_recovers(self):
+        before = physical_state(self.home/'.codex/skills')
+        _, plan = self.request('/api/migration/plan')
+        skill=plan['skills'][0]
+        alternative=next(o for o in skill['options'] if o['id']!=skill['default'])
+        expected=(Path(alternative['path'])/'SKILL.md').read_bytes()
+        status,result=self.request('/api/migration/apply',{"confirmed":True,"plan_id":plan['plan_id'],"agents":plan['agents'],"choices":{"sample":alternative['id']}})
+        self.assertEqual(status,200,result)
+        self.assertEqual((self.home/'.skill-pilot/store/sample/SKILL.md').read_bytes(),expected)
+        self.assertEqual(self.request('/api/restore',{"backup_id":result['backup_id']})[0],400)
+        self.assertEqual(self.request('/api/restore',{"confirmed":True,"backup_id":result['backup_id']})[0],200)
+        self.assertEqual(physical_state(self.home/'.codex/skills'),before)
+
+    def test_readonly_target_write_denied(self):
+        _, plan=self.request('/api/migration/plan')
+        with patch('skill_pilot.web.server.preview_allowed',return_value=False):
+            self.assertEqual(self.request('/api/migration/apply',{"confirmed":True,"plan_id":plan['plan_id'],"agents":plan['agents']})[0],403)
+        self.assertFalse((self.home/'.skill-pilot').exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class M3WebTests(MigrationWebTests):
+    def setUp(self):
+        super().setUp()
+        from skill_pilot import store
+        plan=store.preview(self.home)
+        store.apply(plan['plan_id'],self.home)
+
+    # The inherited migration scenarios belong to the unmigrated fixture.
+    def test_writes_require_confirmation_and_same_origin(self):
+        _,table=self.request('/api/table')
+        body={'changes':[{'skill':'sample','agent':'claude','enabled':True}], 'revision':table['revision']}
+        self.assertEqual(self.request('/api/assignment/apply',body)[0],400)
+        self.assertEqual(self.request('/api/assignment/apply',{**body,'confirmed':True},{'Origin':'http://attacker.example'})[0],403)
+        status, result=self.request('/api/assignment/apply',{**body,'confirmed':True})
+        self.assertEqual(status,200,result)
+        self.assertEqual(self.request('/api/log')[1][0]['id'],result['id'])
+        _,view=self.request('/api/table')
+        status,result=self.request('/api/undo',{'id':result['id'],'revision':view['revision'],'confirmed':True})
+        self.assertEqual(status,200,result)
+
+    def test_changed_plan_rejected_and_complete_compare_available(self):
+        _,table=self.request('/api/table')
+        changes=[{'skill':'sample','agent':'claude','enabled':True}]
+        self.assertEqual(self.request('/api/assignment/preview',{'changes':changes})[0],200)
+        (self.home/'.codex/config.toml').write_text('# external change\n')
+        status,result=self.request('/api/assignment/apply',{'changes':changes,'revision':table['revision'],'confirmed':True})
+        self.assertEqual(status,409)
+        self.assertIn('刷新',result['error'])
+
+    def test_changed_choice_applies_and_confirmed_restore_recovers(self):
+        from skill_pilot.sources import github
+        _,table=self.request('/api/table')
+        path=self.home/'repository'
+        path.mkdir()
+        skill=path/'new'
+        skill.mkdir()
+        (skill/'SKILL.md').write_text('---\nname: new\ndescription: demo\n---\nbody\n')
+        github.git(path,'init','-q');github.git(path,'add','.')
+        github.git(path,'-c','user.name=Test','-c','user.email=test@local','-c','commit.gpgsign=false','commit','-qm','fixture')
+        status,review=self.request('/api/install/inspect',{'url':path.as_uri()})
+        self.assertEqual(status,200,review)
+        body={'review_id':review['id'],'skills':['new'],'agents':[],'revision':table['revision']}
+        self.assertEqual(self.request('/api/install/apply',body)[0],400)
+        status,result=self.request('/api/install/apply',{**body,'confirmed':True})
+        self.assertEqual(status,200,result)
+        _,table=self.request('/api/table')
+        status,result=self.request('/api/install/apply',{**body,'revision':table['revision'],'confirmed':True})
+        self.assertEqual(status,200,result)
+        self.assertTrue(result['conflicts'])
+        self.assertIn('comparison',self.request('/api/incoming/compare',{'name':'new','review_id':review['id']})[1])
+        import shutil
+        shutil.rmtree(review['temporary'])
+
+    def test_readonly_target_write_denied(self):
+        _,table=self.request('/api/table')
+        with patch('skill_pilot.web.server.preview_allowed',return_value=False):
+            self.assertEqual(self.request('/api/assignment/apply',{'changes':[],'revision':table['revision'],'confirmed':True})[0],403)

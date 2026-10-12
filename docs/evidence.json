@@ -1,0 +1,589 @@
+{
+  "verified_at": "2026-10-10T16:47:14.476897+00:00",
+  "scope": "M0 except real-root probes; M1 read-only",
+  "agents": [
+    {
+      "id": "codex",
+      "status": "profile_available",
+      "visible_skill_count": 94,
+      "available_user_skill_count": 96,
+      "description_chars": 30246,
+      "manual_only_names": [
+        "critical-gate",
+        "grill-me"
+      ],
+      "visibility_note": "已扣除停用项及仅限手动调用项；内置、插件和候选库另列，其安装存在不代表已在本次会话启用。"
+    },
+    {
+      "id": "claude",
+      "status": "profile_available",
+      "visible_skill_count": 43,
+      "available_user_skill_count": 43,
+      "description_chars": 11882,
+      "manual_only_names": [],
+      "visibility_note": "按用户技能目录盘点；插件另列。"
+    },
+    {
+      "id": "antigravity",
+      "status": "profile_available",
+      "visible_skill_count": 38,
+      "available_user_skill_count": 38,
+      "description_chars": 10963,
+      "manual_only_names": [],
+      "visibility_note": "按用户技能目录盘点；内置和插件另列。"
+    },
+    {
+      "id": "dsh",
+      "status": "profile_available",
+      "visible_skill_count": 90,
+      "available_user_skill_count": 90,
+      "description_chars": 22080,
+      "manual_only_names": [],
+      "visibility_note": "按程序包默认目录估算；真实会话可见范围仍待授权探针验证。"
+    },
+    {
+      "id": "kimi",
+      "status": "ignored",
+      "visible_skill_count": null,
+      "available_user_skill_count": null,
+      "description_chars": null,
+      "manual_only_names": null,
+      "visibility_note": "已发现，尚未接入；目录文件数不等于实际可见数。"
+    },
+    {
+      "id": "workbuddy",
+      "status": "discovered",
+      "visible_skill_count": null,
+      "available_user_skill_count": null,
+      "description_chars": null,
+      "manual_only_names": null,
+      "visibility_note": "已发现，尚未接入；目录文件数不等于实际可见数。"
+    },
+    {
+      "id": "cursor",
+      "status": "discovered",
+      "visible_skill_count": null,
+      "available_user_skill_count": null,
+      "description_chars": null,
+      "manual_only_names": null,
+      "visibility_note": "已发现，尚未接入；目录文件数不等于实际可见数。"
+    },
+    {
+      "id": "trae",
+      "status": "discovered",
+      "visible_skill_count": null,
+      "available_user_skill_count": null,
+      "description_chars": null,
+      "manual_only_names": null,
+      "visibility_note": "已发现，尚未接入；目录文件数不等于实际可见数。"
+    }
+  ],
+  "roots": [
+    {
+      "path": "~/.agents/skills",
+      "category": "user",
+      "entries": 91,
+      "manifests": 90,
+      "valid": 90,
+      "broken_skills": 1,
+      "unresolved_directory_links": 0
+    },
+    {
+      "path": "~/.codex/skills",
+      "category": "user",
+      "entries": 56,
+      "manifests": 56,
+      "valid": 56,
+      "broken_skills": 0,
+      "unresolved_directory_links": 0
+    },
+    {
+      "path": "~/.codex/skills/.system",
+      "category": "builtin",
+      "entries": 5,
+      "manifests": 5,
+      "valid": 5,
+      "broken_skills": 0,
+      "unresolved_directory_links": 0
+    },
+    {
+      "path": "~/.codex/plugins/cache",
+      "category": "plugin_cache",
+      "entries": 192,
+      "manifests": 192,
+      "valid": 192,
+      "broken_skills": 0,
+      "unresolved_directory_links": 12
+    },
+    {
+      "path": "~/.codex/plugins/user",
+      "category": "plugin",
+      "entries": 3,
+      "manifests": 3,
+      "valid": 3,
+      "broken_skills": 0,
+      "unresolved_directory_links": 0
+    },
+    {
+      "path": "~/.codex/vendor_imports",
+      "category": "vendor",
+      "entries": 39,
+      "manifests": 39,
+      "valid": 39,
+      "broken_skills": 0,
+      "unresolved_directory_links": 0
+    },
+    {
+      "path": "~/.claude/skills",
+      "category": "user",
+      "entries": 43,
+      "manifests": 43,
+      "valid": 43,
+      "broken_skills": 0,
+      "unresolved_directory_links": 0
+    },
+    {
+      "path": "~/.claude/plugins",
+      "category": "plugin_cache",
+      "entries": 33,
+      "manifests": 33,
+      "valid": 32,
+      "broken_skills": 0,
+      "unresolved_directory_links": 0
+    },
+    {
+      "path": "~/.gemini/config/skills",
+      "category": "user",
+      "entries": 38,
+      "manifests": 38,
+      "valid": 38,
+      "broken_skills": 0,
+      "unresolved_directory_links": 0
+    },
+    {
+      "path": "~/.gemini/antigravity/builtin/skills",
+      "category": "builtin",
+      "entries": 9,
+      "manifests": 9,
+      "valid": 9,
+      "broken_skills": 0,
+      "unresolved_directory_links": 0
+    },
+    {
+      "path": "~/.gemini/antigravity-cli/builtin/skills",
+      "category": "builtin",
+      "entries": 8,
+      "manifests": 8,
+      "valid": 8,
+      "broken_skills": 0,
+      "unresolved_directory_links": 0
+    },
+    {
+      "path": "~/.gemini/config/plugins",
+      "category": "plugin",
+      "entries": 13,
+      "manifests": 13,
+      "valid": 13,
+      "broken_skills": 0,
+      "unresolved_directory_links": 0
+    },
+    {
+      "path": "~/.dsh/skills",
+      "category": "user",
+      "entries": 0,
+      "manifests": 0,
+      "valid": 0,
+      "broken_skills": 0,
+      "unresolved_directory_links": 0
+    }
+  ],
+  "conflicts": [
+    {
+      "name": "agency-router",
+      "versions": 2
+    },
+    {
+      "name": "lark-approval",
+      "versions": 2
+    },
+    {
+      "name": "lark-base",
+      "versions": 2
+    },
+    {
+      "name": "lark-calendar",
+      "versions": 2
+    },
+    {
+      "name": "lark-contact",
+      "versions": 2
+    },
+    {
+      "name": "lark-doc",
+      "versions": 2
+    },
+    {
+      "name": "lark-drive",
+      "versions": 2
+    },
+    {
+      "name": "lark-event",
+      "versions": 2
+    },
+    {
+      "name": "lark-im",
+      "versions": 2
+    },
+    {
+      "name": "lark-mail",
+      "versions": 2
+    },
+    {
+      "name": "lark-markdown",
+      "versions": 2
+    },
+    {
+      "name": "lark-minutes",
+      "versions": 2
+    },
+    {
+      "name": "lark-okr",
+      "versions": 2
+    },
+    {
+      "name": "lark-shared",
+      "versions": 2
+    },
+    {
+      "name": "lark-sheets",
+      "versions": 2
+    },
+    {
+      "name": "lark-slides",
+      "versions": 2
+    },
+    {
+      "name": "lark-task",
+      "versions": 2
+    },
+    {
+      "name": "lark-vc",
+      "versions": 2
+    },
+    {
+      "name": "lark-vc-agent",
+      "versions": 2
+    },
+    {
+      "name": "lark-whiteboard",
+      "versions": 2
+    },
+    {
+      "name": "lark-wiki",
+      "versions": 2
+    },
+    {
+      "name": "lark-workflow-meeting-summary",
+      "versions": 2
+    },
+    {
+      "name": "lark-workflow-standup-report",
+      "versions": 2
+    },
+    {
+      "name": "marketing-router",
+      "versions": 3
+    },
+    {
+      "name": "simon-neat",
+      "versions": 2
+    },
+    {
+      "name": "ui-ux-pro-max",
+      "versions": 2
+    }
+  ],
+  "tests": {
+    "command": "python3 -m unittest discover -v",
+    "count": 15,
+    "result": "OK"
+  },
+  "ui": {
+    "server_pid": 54127,
+    "port": 52450,
+    "matching_service_processes": [
+      "54127 python3 -m skill_pilot ui"
+    ],
+    "process_count": 1,
+    "second_launch_exit": 0,
+    "second_launch_output": "已打开正在运行的看板。",
+    "browser": "Google Chrome (default)",
+    "opened_pages": 2,
+    "ui_checks": [
+      "中文总览显示四个主力助手",
+      "搜索 doc 能看到失效链接",
+      "版本差异页显示 26 组",
+      "重复启动打开相同服务"
+    ],
+    "after_last_close_poll_seconds": 4.95,
+    "close_observation_overhead_seconds": 4,
+    "exit_upper_bound_seconds": 8.95,
+    "exit_within_30_seconds": true,
+    "final_server_pid": 55717,
+    "final_port": 54621,
+    "final_process_count": 1,
+    "final_ui_counts": {
+      "codex": 94,
+      "claude": 43,
+      "antigravity": 38,
+      "dsh_estimated": 90
+    },
+    "final_ui_checks": [
+      "默认浏览器呈现 94/43/38/90",
+      "仅显示 1 个用户技能失效链接",
+      "内置与插件筛选能找到 share 技能",
+      "重复启动仍只存在 1 个服务进程"
+    ],
+    "final_exit_after_close_seconds": 26.69,
+    "final_exit_within_30_seconds": true
+  },
+  "protected_paths": {
+    "before": {
+      ".codex/skills": {
+        "entries": 1930,
+        "sha256": "f355536436cc6df82ab7fafa0d6bd48459197e7cfe5bf74fbec3bfc455f19cf8"
+      },
+      ".agents/skills": {
+        "entries": 906,
+        "sha256": "b9ddaed067c6209b5525af7b88d29ecc2515b9254fd42a3618435ed415ee13ea"
+      },
+      ".claude/skills": {
+        "entries": 44,
+        "sha256": "814625d817af84542d9aeede83ad7663afdfdbd7960ca5385fcaf3b9c19724ec"
+      },
+      ".gemini/config/skills": {
+        "entries": 476,
+        "sha256": "5f8b60a2a6826cd9630fa5227db933e2c9bb5cc42ef869508a1d6f60208298bf"
+      },
+      ".codex/config.toml": {
+        "entries": 1,
+        "sha256": "fb038d6d930e5ede34c6fb6915fd232558f3c5f460351b294c4eaf41290e8263"
+      },
+      ".agents/.skill-lock.json": {
+        "entries": 1,
+        "sha256": "0c34a140b175bfae6e20296d7e52a9fb308198a49a5602818af002160bd2357f"
+      }
+    },
+    "after": {
+      ".codex/skills": {
+        "entries": 1930,
+        "sha256": "f355536436cc6df82ab7fafa0d6bd48459197e7cfe5bf74fbec3bfc455f19cf8"
+      },
+      ".agents/skills": {
+        "entries": 906,
+        "sha256": "b9ddaed067c6209b5525af7b88d29ecc2515b9254fd42a3618435ed415ee13ea"
+      },
+      ".claude/skills": {
+        "entries": 44,
+        "sha256": "814625d817af84542d9aeede83ad7663afdfdbd7960ca5385fcaf3b9c19724ec"
+      },
+      ".gemini/config/skills": {
+        "entries": 476,
+        "sha256": "5f8b60a2a6826cd9630fa5227db933e2c9bb5cc42ef869508a1d6f60208298bf"
+      },
+      ".codex/config.toml": {
+        "entries": 1,
+        "sha256": "fb038d6d930e5ede34c6fb6915fd232558f3c5f460351b294c4eaf41290e8263"
+      },
+      ".agents/.skill-lock.json": {
+        "entries": 1,
+        "sha256": "0c34a140b175bfae6e20296d7e52a9fb308198a49a5602818af002160bd2357f"
+      }
+    },
+    "unchanged": true
+  },
+  "codex_config": {
+    "disabled_names": 92,
+    "disabled_paths": 1
+  },
+  "codex_temporary_probe": {
+    "exit": 0,
+    "absolute_link_found": true,
+    "nested_link_found": true,
+    "probe_name_mentions": 2,
+    "nested_name_mentions": 2,
+    "stdout_chars": 12792,
+    "stderr": ""
+  },
+  "codex_visible_probe": {
+    "exit": 0,
+    "expected_count": 96,
+    "prompt_user_skill_count": 94,
+    "not_in_prompt": [
+      "critical-gate",
+      "grill-me"
+    ],
+    "extra_in_prompt": [],
+    "stderr": "",
+    "final_scanner_count": 94,
+    "final_count_matches_prompt": true,
+    "final_names_match_prompt": true
+  },
+  "github_update_samples": [
+    {
+      "name": "brandkit",
+      "repo": "Leonxlnx/taste-skill",
+      "path": "skills/brandkit",
+      "branch": "main",
+      "commit": "717446e07a78d4e6d7918b1fde1a263378eebac9",
+      "locked_sha": "d278ff748cafab01e4ae5dd7758fc0b53258621c",
+      "api_sha": "d278ff748cafab01e4ae5dd7758fc0b53258621c",
+      "downloaded_sha": "d278ff748cafab01e4ae5dd7758fc0b53258621c",
+      "api_matches_download": true,
+      "update_detected": false,
+      "installed_content_equal": true,
+      "changed_files": [],
+      "api_calls": 3
+    },
+    {
+      "name": "academic-cv-builder",
+      "repo": "Paramchoudhary/ResumeSkills",
+      "path": "skills/academic-cv-builder",
+      "branch": "main",
+      "commit": "74ae19e7c62b0516d1c298328e5544976c12da5d",
+      "locked_sha": "86b6f36051bb742e5f029c692060b01b606e2430",
+      "api_sha": "86b6f36051bb742e5f029c692060b01b606e2430",
+      "downloaded_sha": "86b6f36051bb742e5f029c692060b01b606e2430",
+      "api_matches_download": true,
+      "update_detected": false,
+      "installed_content_equal": true,
+      "changed_files": [],
+      "api_calls": 3
+    },
+    {
+      "name": "gzh-design",
+      "repo": "isjiamu/gzh-design-skill",
+      "path": "/",
+      "branch": "main",
+      "commit": "fa4b78fb9471db33fe4538f04e88c62e38f54250",
+      "locked_sha": "ba1f4175519b481cb3566616c9e5178705067904",
+      "api_sha": "973c34cd43bcb1566dd02cb9a55ae8d6ed24d02f",
+      "downloaded_sha": "973c34cd43bcb1566dd02cb9a55ae8d6ed24d02f",
+      "api_matches_download": true,
+      "update_detected": true,
+      "installed_content_equal": false,
+      "changed_files": [
+        "SKILL.md",
+        "assets/preview-template.html",
+        "references/theme-graphite-minimal.md",
+        "references/theme-moyu-green.md",
+        "references/theme-moyu-ticket.md",
+        "references/theme-red-white.md",
+        "references/theme-zen-whitespace.md",
+        "scripts/extract_docx.py",
+        "scripts/test_validate_gzh_html.py",
+        "scripts/validate_gzh_html.py"
+      ],
+      "api_calls": 4,
+      "tree_endpoint_alias_sha": "fa4b78fb9471db33fe4538f04e88c62e38f54250"
+    }
+  ],
+  "dsh_record_evidence": {
+    "files": 76,
+    "frames": 16894,
+    "versions": {
+      "session.v4.jsonl.zstd": 14,
+      "session.v3.jsonl.zstd": 62
+    },
+    "row_types": {
+      "session": 76,
+      "permission/preset": 79,
+      "sandbox/mode": 79,
+      "approval/policy": 79,
+      "agent/inbox/spliced": 900,
+      "turn/start": 245,
+      "step/start": 6635,
+      "system/message": 72,
+      "user/message": 713,
+      "request/header": 106,
+      "request/context": 72,
+      "session/title": 98,
+      "session/title-llm-request": 27,
+      "session-log-deepseek/delivery-accepted": 98,
+      "assistant/message": 6634,
+      "tool/call": 8556,
+      "tool/result": 8574,
+      "step/end": 6635,
+      "todo/write": 69,
+      "approval/asked": 6,
+      "approval/decided": 6,
+      "turn/end": 245,
+      "subagent/descriptor": 45,
+      "web/deepseek-search-llm-request": 364,
+      "deliverables/presented": 72,
+      "subagent/catalog": 63,
+      "command/run": 3,
+      "command/done": 3,
+      "model/selection": 1,
+      "session/end-seed": 15,
+      "goal/change": 13,
+      "assistant/attempt": 2,
+      "compaction/prune": 18,
+      "compaction/start": 1,
+      "compaction/summary": 1,
+      "compaction/end": 1
+    },
+    "tool_names": {
+      "read": 1182,
+      "bash": 5056,
+      "todo_write": 69,
+      "write": 313,
+      "edit": 813,
+      "read_image": 209,
+      "send_message": 66,
+      "grep": 34,
+      "web_search": 122,
+      "web_fetch": 270,
+      "skill": 35,
+      "present": 73,
+      "subagent": 63,
+      "list_agents": 117,
+      "interrupt_agent": 11,
+      "job_output": 54,
+      "add": 1,
+      "glob": 4,
+      "ask_user_question": 23,
+      "job_kill": 3,
+      "job_list": 11,
+      "create_goal": 5,
+      "get_goal": 13,
+      "update_goal": 8,
+      "http_placeholder": 1
+    },
+    "errors": []
+  },
+  "claude_desktop": {
+    "desktop_records": 40,
+    "desktop_records_matching_project_transcript": 40,
+    "project_transcripts": 45,
+    "desktop_metadata_has_tool_messages": 0,
+    "local_agent_mode_jsonl_count": 0
+  },
+  "source_attribution": {
+    "entries": 56,
+    "confidence": {
+      "高": 15,
+      "中": 34,
+      "低": 7
+    }
+  },
+  "path_references": {
+    "files": 87,
+    "by_prefix": {
+      ".codex": 55,
+      ".agents": 21,
+      ".claude": 37
+    }
+  },
+  "discovery_read_errors": 12
+}

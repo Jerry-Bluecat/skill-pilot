@@ -1,0 +1,127 @@
+{
+  "evidence": "docs/spikes.md S4: CLI 1.0.97, in_sync=true; original M1 content fingerprints from work/scan.json",
+  "cli_version": "1.0.97",
+  "lock_fingerprint": "0c34a140b175bfae6e20296d7e52a9fb308198a49a5602818af002160bd2357f",
+  "skills": {
+    "lark-approval": {
+      "digest": "27564279cf58aa08a3d72e10ee35b0c3fb21a15760c88611594bc3649b651ead",
+      "version": "1.2.0"
+    },
+    "lark-apps": {
+      "digest": "fef25f91fdedc05cb037605e75140796f1f3eba6c812e17ed659b8e4da142f5c",
+      "version": "1.0.0"
+    },
+    "lark-attendance": {
+      "digest": "29a99bdb8d0394b395b329456638f6d47e515741d150756ebd42aa65942c0013",
+      "version": "1.0.0"
+    },
+    "lark-base": {
+      "digest": "873ed86c98778f78f2370ef814f2ba51628e0b53ec0403af6b9baf3a5742efeb",
+      "version": "1.2.23"
+    },
+    "lark-calendar": {
+      "digest": "6b3e426076a43365d39958ff922f8c1406454cf7e97428fc7df4b3d9e514c7f6",
+      "version": "1.0.0"
+    },
+    "lark-cli-first": {
+      "digest": "f9cde80f746a82da55ff63c5f452425ad0f257412ce0573005525e4e6eeedfba",
+      "version": null
+    },
+    "lark-contact": {
+      "digest": "4f3aafda9f489cb4f4fd034868ad83bde67b378f7b7a85da7d4b23ff9544164f",
+      "version": "1.0.0"
+    },
+    "lark-doc": {
+      "digest": "4d3a188cd8a3db4d5427c070c81a39737512a65f5d3a970eed6eb890b9534ec9",
+      "version": null
+    },
+    "lark-drive": {
+      "digest": "ffb3b15c9825f82be7ed17a3c8d801d45acdc021e39957990f02583cb5e0f1f6",
+      "version": "1.0.0"
+    },
+    "lark-event": {
+      "digest": "3b722a90e9644903f62fb32f6aa5cefd55d822247d04c2638592b43a97454795",
+      "version": "1.0.0"
+    },
+    "lark-im": {
+      "digest": "0c9b42ed668e87c5b7ec88f7d535ac56e8699459ea686f6cbb61d26a578ff2cd",
+      "version": "1.0.0"
+    },
+    "lark-live-meeting-assistant": {
+      "digest": "90a0647cf6993d60fd748f9e0e4bc43785fd6a74d01cfc3cbbca8852f4ef6c88",
+      "version": null
+    },
+    "lark-mail": {
+      "digest": "8d554e1f5a534b3b121a77295a9872fb62bc735c3a22b4fd6b8aa3cc16cbd763",
+      "version": "1.0.0"
+    },
+    "lark-markdown": {
+      "digest": "c32d4074ecb206c25f827781c0fe33e6e33973c3d682962092d36482a463f4f7",
+      "version": "1.2.2"
+    },
+    "lark-meeting": {
+      "digest": "d136569b6c1d6b012dd281ae42855e4eb23571641c43b701e89fa01534428b6e",
+      "version": "1.0.0"
+    },
+    "lark-minutes": {
+      "digest": "a2d87bda3a7633f92995196201ba0e6272483de17ac56c9cc9ecfadabaeefd45",
+      "version": "1.0.0"
+    },
+    "lark-note": {
+      "digest": "3d84925cb63c93d8a47aad0dfadfdcbb3d3e15d48b2d3cd9a1b45a34e15e0231",
+      "version": "1.0.0"
+    },
+    "lark-okr": {
+      "digest": "17282e8dd1b9e11bc004eefbdaf79c05b612b33db67d9680337a3095f7c9c7e8",
+      "version": "1.0.0"
+    },
+    "lark-openapi-explorer": {
+      "digest": "62a1b63175d1bfddd69c1c60bd5c1fa8f1b662cb8b4956f549fa920c30f11b14",
+      "version": "1.0.0"
+    },
+    "lark-shared": {
+      "digest": "7adfbe724a3db9a670160957a87bcb3f14165b1d10816fbacae88ca1715a4e2a",
+      "version": "1.1.0"
+    },
+    "lark-sheets": {
+      "digest": "13724d5551f4c287907728b9edaedb6924d00702a8ac44899959a8e64ebc7d54",
+      "version": "3.5.2"
+    },
+    "lark-skill-maker": {
+      "digest": "fff3d14c648278b6d68157210502ae00fd56e4e0d1933752f5eecc1fa1683672",
+      "version": "1.0.0"
+    },
+    "lark-slides": {
+      "digest": "2d92a28e4d7bd92dc2c5573bcdd805df8a7353046b9514a6c308d0a5a4822947",
+      "version": "1.0.0"
+    },
+    "lark-task": {
+      "digest": "8cfe5b6af53bc1d061c493baea88e5e66660284efeff64bdd585065d10584eb3",
+      "version": "1.0.0"
+    },
+    "lark-vc": {
+      "digest": "16bd81f8529da3cdebedce7b529f02052ba493d4f6a4ebc11557ee5181b143ea",
+      "version": "1.0.0"
+    },
+    "lark-vc-agent": {
+      "digest": "ea73672068326446ecc409a8e938ed538a61975133f101d1f68a93095eccfd61",
+      "version": "1.0.0"
+    },
+    "lark-whiteboard": {
+      "digest": "db8890b1d11cd9044720749040a057b6edf77641613595008a260dc4ca05e077",
+      "version": "1.0.0"
+    },
+    "lark-wiki": {
+      "digest": "039de201167564986e2ef35c9eef202cbb9071e7dd23d954d89e7990f9a5ee0d",
+      "version": "1.0.3"
+    },
+    "lark-workflow-meeting-summary": {
+      "digest": "12024c6b4f1f37524943208261bbc74cbcd1b5c298de3f6efbfc40688680cb6c",
+      "version": "1.0.0"
+    },
+    "lark-workflow-standup-report": {
+      "digest": "207e15911dcf79061e3895da25d2b32f486c07f864100e71d22b970d7fded001",
+      "version": "1.0.0"
+    }
+  }
+}

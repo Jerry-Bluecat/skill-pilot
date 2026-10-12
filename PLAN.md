@@ -1,0 +1,258 @@
+# Skill Pilot 执行计划
+
+> 2026-10-10 由 Claude 通过 grill-me 与 Simon 对齐需求后编写，交给 Codex 执行。
+> 面向执行 Agent；§1 的结论已由用户逐条确认，执行中不要重新讨论。只有遇到本文未覆盖、且会改变结果的情况才问用户。
+> 用户不是程序员：所有界面文字、确认弹窗、报告都用中文大白话，不出现 symlink、diff、git、TOML、hash 这类词（内部实现照常用）。
+> **2026-10-11 方向调整（用户确认，优先于下文冲突之处）**：回到最初四个问题——各 agent 分别管、更新不用开对话、多份副本冲突、装了什么不知道/不用的占上下文。做减法、不再加功能；先让用户自己能用起来；主控 agent 只负责写计划、派活、验收，不手动操作用户的技能库。具体见 §1“方向调整”一行与 §7 顺序。
+> 2026-10-10 M0（含 S1 真实探针，四个 agent 均通过）与 M1 已完成，§2–§4 已按 `docs/spikes.md` 的结论修订；验证细节以 spikes.md 为准。
+
+## 1. 要做什么（用户已确认）
+
+一个本机技能管理工具：认出电脑上有哪些 agent，把所有技能收进一个统一仓库，每个 agent 的技能目录里只放链接；用网页看板决定"哪个 agent 能看到哪个技能"、按需检查上游更新、清理长期不用的技能。
+
+| 项 | 结论 |
+| --- | --- |
+| 管理深度 | **集中管理**：每个技能在统一仓库只存一份；各 agent 目录只放链接，由勾选表决定可见范围 |
+| agent 之间的差别 | 只是**分配范围**不同；同名技能在所有 agent 里内容一致。需要改写版就另起名字，作为独立技能 |
+| agent 识别 | 先扫描本机有哪些 agent，再看它们的技能；不写死四个目录。以后装了新 agent，看板提示"发现新 agent"，按一下接入并迁移 |
+| 未知 agent | 按"调研"，交给 Codex 查官方说明并起草接入档案，用大白话给用户看，用户确认才生效 |
+| 新 agent 默认分配 | 保持它原来就有的技能；另给一键"跟某个 agent 一样" |
+| v1 接入范围 | 内置 Codex、Claude、Antigravity、DSH 四份档案。Kimi、WorkBuddy、Cursor、Trae 显示为"已发现、未接入"；Kimi 默认"忽略" |
+| 管理对象 | 已接入 agent 的全局技能目录。插件技能、软件内置技能（含 Codex `.system`）只展示不改。项目目录里的技能不管 |
+| 首次迁移 | 扫描 → 用户选要接入的 agent → 一页列出同名不同内容的技能，默认选有来源记录的那份、没有就选最新的 → 用户改掉不同意的、确认一次 → 全部备份 → 执行 |
+| 新技能入口 | 两种都要：看板里贴 GitHub 链接安装并勾选 agent；agent 自己装进各目录的，打开看板时提示一键收进仓库 |
+| 依赖 | 分发一个技能时自动带上它依赖的技能（如 grill-me → grilling）。依赖只来自已判定清单 `docs/dependency-decisions.json` 和用户在看板上手动加减；**不再从正文自动猜测依赖**（2026-10-11 调整） |
+| 方向调整 | 2026-10-11 用户确认：①不做“自动判断”那一轮；②检查更新不调用 AI：改了脚本的用简单规则标出（联网、删文件、执行命令、安装软件包等关键词与可执行文件），"让 Codex 解释"只作可选按钮；③用量与清理（M5）做完后，下一轮优先"能用起来"：双击打开看板、看板直接可写真实目录（去掉开发期的 `SKILL_PILOT_ALLOW_REAL_HOME` 开关，保留确认弹窗和撤销）、四个 agent 装 `skill-pilot` 技能；④M6 新 agent 调研排在其后 |
+| 来源确认 | 用户不逐个确认来源。GitHub 来源由工具（或主控 agent）用内容与上游及其历史版本比对后自动登记；找不到上游的一律记为**自制**，自制技能不检查更新（用户直接修改）。2026-10-10 补充 |
+| 更新 | **不定时检查**。看板上按"检查更新"才查，飞书技能同样（走 lark-cli）。列出有更新的技能和改动，用户勾选同意的才装 |
+| 本地改过的技能遇到更新 | **默认用上游的**（2026-10-11 调整：用户实际选择以上游为主），更新前备份、可撤销；看板标出"你改过"并可改选"保留我的"；"交给 Codex 合并"只作可选按钮，不是默认流程 |
+| 清理判定 | 以技能为单位：**所有 agent 都 60 天没用过**才进名单。装进来不满 60 天的不算；分配给了"用量统计不到"的 agent 的不算。没有免检名单 |
+| 清理方式 | 名单**默认全选**，用户取消勾选要留的，按一下执行。清理 = 从所有 agent 撤下，文件留在仓库，随时可恢复。不自动删除 |
+| 留下的技能 | 视为"今天用过一次"，60 天后仍没被用才再次出现在名单里 |
+| 看板 | 网页看板，需要时才启动（双击图标或让 agent 打开），关掉页面程序退出。中文界面，显示每个 agent 的技能数和描述占用字数 |
+| agent 入口 | 四个 agent 都装 `skill-pilot` 技能：在对话里能查看、分发、撤下、打开看板；更新和清理要用户在对话里明确同意才执行 |
+| 自写技能 | 以后在统一仓库里改。AI-Workbench 里 simon-neat、agency-router、marketing-router 三份源码，迁完后**经用户同意**移到废纸篓；`skills-management.md` 的手工清单改成指向看板 |
+
+v1 不做：定时检查或自动更新、项目目录内的技能、插件技能的分配与更新、技能内容质量评估、多台电脑同步、远程访问看板。
+
+## 2. 编写时已核实的本机事实（2026-10-10）
+
+环境：macOS 26.6.1；Python 3.12.14；git 2.50.1；Node v24.21.0；`gh` 已登录（账号 Simonlau4）。Codex CLI 不在 PATH，位于 `/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex`（0.162.0-alpha），前台调用必须加 `< /dev/null`，否则会挂住。`~/Developer/skill-pilot/` 编写时只有本文件。
+
+**各 agent 的技能目录**
+
+| Agent | 用户技能目录 | 现状 | 其他（只读） |
+| --- | --- | --- | --- |
+| Codex | `~/.codex/skills/`（54 个直属真实目录 + `community/` 下 2 个嵌套，共 56）**和** `~/.agents/skills/` | 两个目录都读，会递归发现嵌套目录（临时 home 探针已验证）；扣除停用项后自动可用 94 个，另 2 个仅手动调用（grill-me、critical-gate） | `~/.codex/skills/.system/`（5）、`~/.codex/plugins/cache/`（192）、`~/.codex/plugins/user/`、`~/.codex/vendor_imports/` |
+| DSH | 程序包源码确认默认用户根为 `~/.dsh/skills`（当前不存在）和 `~/.agents/skills`；只发现根目录直属技能，不递归；支持动态刷新。S1 探针已实测能读 `~/.agents/skills` 里指向仓库外的链接 | 91 个入口，其中 22 个是指向 `~/.codex/skills` 的链接；`doc` 是断链（目标已不存在），扫描要能报出断链 | 未知 |
+| Claude | `~/.claude/skills/`（不读共享根） | 43 个，全部是相对链接（→ `../../.codex/skills/` 或 `../../.agents/skills/`，stss → `~/Developer/vendor/stop-that-shit-local/skills/stss`）；动态刷新，正在运行的会话也会立刻看到变化 | `~/.claude/plugins/`（33）；`~/.claude/skills/synced/`（Claude 桌面 app 自己同步的官方技能，**迁移、收编、对账一律跳过**） |
+| Antigravity | `~/.gemini/config/skills/`（不读共享根，已实测） | 38 个，部分链接、部分真实副本；指向仓库外的绝对路径链接已实测可用 | `~/.gemini/antigravity/builtin/skills/`（9）、`~/.gemini/antigravity-cli/builtin/skills/`（8）、`~/.gemini/config/plugins/*/skills/` |
+
+扫描时发现的其他 agent：Kimi 桌面版 `~/Library/Application Support/kimi-desktop/daimon-share/daimon/skills/`（72，Kimi 已于 10/8 退役）、WorkBuddy `~/.workbuddy/skills-marketplace/skills/`（170，疑似市场缓存）、Cursor `~/.cursor/skills-cursor/`（20）、Trae `~/.trae/builtin/*/*/skills/`（内置）。噪声：`~/.local/backups/**`、`~/.codex/.tmp/**`、各技能自带的 `references/` 子目录。
+
+**Codex 的停用配置**：`~/.codex/config.toml` 的 `[skills]` 段，`config = [{ name = "...", enabled = false }, ...]` 写在一行内联数组里，目前约 92 条（多为 `vercel:*`、`build-ios-apps:*` 插件技能和求职类技能），另有 1 条按 `path` 停用。
+
+**版本已经分叉**：Antigravity 的 25 个 `lark-*` 中有 22 个和 `~/.agents/skills/` 内容不同（如 lark-base 1.2.0 vs 1.2.23）；`ui-ux-pro-max` 在 Codex 与 Antigravity 内容不同。
+
+**来源记录**：`~/.agents/.skill-lock.json`（`npx skills` 生成，version 3）记有 65 个技能：飞书官方 28 个（`sourceType: well-known`，`wellKnownDigest`）；GitHub 来源 37 个（`sourceType: github`，含 `sourceUrl`、`skillPath`、`skillFolderHash` 即上游该目录的 git tree sha）。`~/.codex/skills/` 的 54 个没有任何来源记录，也不是 git 仓库。可用于推断来源的线索：`~/.codex/config.toml` 中形如 `projects."/Users/j/Documents/Codex/2026-06-04/skill-https-github-com-zarazhangrui-beautiful"` 的项目目录名、`AI-Workbench/docs/外部Skills候选池.md`、`AI-Workbench/docs/skills-active-reference清单.md`、SKILL.md 正文里的仓库链接。
+
+**飞书技能**：版本跟 lark-cli 绑定。`lark-cli update --check --json` 只检查不安装；`lark-cli update` 会升级 CLI 本身（npm 全局安装），带 `--skills-layout separate|suite` 参数，具体把技能写到哪些目录未知（S4）。
+
+**用量记录**
+
+- Claude：`~/.claude/projects/**/*.jsonl`，技能调用记录为 `"name":"Skill","input":{"skill":"<name>"}`；另有按路径 Read `SKILL.md` 的手动读取。**只保留 30 天**（Claude Code 默认清理，最早记录 2026-09-29，共 45 个文件），工具必须自建账本。历史上一共只调用过 13 个技能。
+- Codex：`~/.codex/sessions/YYYY/MM/DD/*.jsonl`（2849 个文件，自 2026-04 起）和 `~/.codex/archived_sessions/`。工具调用的 `payload.type` 为 `custom_tool_call`/`function_call`/`local_shell_call`，参数中出现 `skills/<name>/SKILL.md` 即读取了该技能（抽查一份近期会话命中 17 次）。系统提示里的技能列表不是工具调用，不能算。
+- Antigravity：`~/.gemini/antigravity/conversations/*.db`（SQLite，blob 为 protobuf）和 `*.pb`；`~/.gemini/antigravity-cli/history.jsonl` 只有用户输入。能否识别技能调用未知（S3）。
+- DSH：`~/.dsh/sessions/<project>/<session>/session.v{3,4}.jsonl.zstd`，多 frame zstd，需逐 frame 解码（Python 标准库不支持，允许调用本机 Node 标准库解码）。技能调用为 `type == "tool/call"` 且 `data.name == "skill"`；v3/v4 有重复，必须去重后才能用于清理（S2）。CLI 入口是 `dsh --profile headless`。
+
+**上下文占用**（M1 实测，自动可用技能的描述字符数）：Codex 30,246、DSH 22,080（按默认目录估算）、Claude 11,882、Antigravity 10,963。
+
+**技能间依赖的实例**：`grill-me` 正文只有"调用 grilling"；`ascentiz-blog-writer` 依赖 `natural-text-writing`、`unslop`、`stss`、`ascentiz-blog-editor`。
+
+**写死的技能路径**：Vault、AI-Workbench（docs/tools/scripts）、各技能目录、`~/.codex/AGENTS.md`、`~/.claude/CLAUDE.md` 中，含 `/.codex/skills/` 的文件 47 个、`/.agents/skills/` 16 个、`/.claude/skills/` 29 个（粗查，含技能用绝对路径调用自己脚本的情况）。
+
+**现有手工管理**：`AI-Workbench/docs/skills-management.md`（清单快照停在 2026-08-09）；source-synced 三个技能的源码在 `AI-Workbench/skills/{simon-neat,agency-router,marketing-router}/`，靠 `ditto` 复制到 `~/.codex/skills/`。
+
+## 3. 技术方案
+
+- **Python 3.12，只用标准库**（`http.server`、`sqlite3`、`json`、`tomllib`、`subprocess`、`hashlib`）；唯一例外是解码 DSH 的 zstd 会话记录时调用本机 Node 标准库。前端是一个 HTML + 原生 JS，不引入构建工具和第三方包。git 操作调用系统 `git`；GitHub 查询优先用已登录的 `gh api`。
+- 代码仓库：`~/Developer/skill-pilot/`（Codex 执行 `git init`）。
+- 数据目录：`~/.skill-pilot/`，不在任何 agent 的扫描范围内。
+- 命令行入口：`~/.local/bin/skill-pilot`。启动器：`~/Applications/Skill Pilot.app`（壳 app，内部执行 `skill-pilot ui`），参照 `~/Applications/AI Usage Bar.app` 的放法。
+- `skill-pilot ui`：在 `127.0.0.1` 随机端口启动服务，生成本次启动的随机口令放进 URL，打开默认浏览器；页面每 10 秒发一次心跳，30 秒收不到就退出。同一时间只允许一个实例（锁文件），再次启动时直接打开已有页面。
+
+### 目录
+
+```
+~/Developer/skill-pilot/
+  skill_pilot/
+    profiles/        # 内置 agent 档案：codex.py、claude.py、antigravity.py、dsh.py
+    scan.py          # agent 识别 + 技能目录扫描 + 疑似目录分类
+    store.py         # 统一仓库、registry、基准快照、备份与还原
+    sync.py          # 由分配表计算每个目录应有的链接并对账
+    sources/         # github.py、lark.py、unknown.py：来源与更新检查
+    usage/           # claude.py、codex.py（+ S2/S3 通过后的 antigravity.py、dsh.py）
+    cleanup.py
+    research.py      # 调 Codex 调研新 agent、合并改动
+    web/             # server.py + static/index.html、app.js
+    cli.py
+  skill/skill-pilot/SKILL.md   # 给四个 agent 用的技能（也收进统一仓库管理）
+  tests/                       # 带 fixtures 的单测：扫描分类、对账、Codex 配置编辑、用量解析、清理判定
+  scripts/build-app.sh
+  docs/spikes.md               # M0 结论
+  README.md
+
+~/.skill-pilot/
+  store/             # 统一仓库，git 仓库；每个技能一个目录，目录名 = 技能名
+  bases/<name>/      # 每个第三方技能"装进来时的原样"，用来判断用户改过什么
+  registry.json      # 技能：来源、基准指纹、依赖、分配、保留记录、首次入库时间
+  agents.json        # 已接入/忽略的 agent，及用户确认过的非内置档案
+  usage.sqlite       # 用量账本（增量扫描）
+  backups/<时间>/    # 每次迁移、批量写入前的备份（tar，保留链接本身）
+  logs/
+```
+
+### 核心模型
+
+- **Agent 档案**：`id`、显示名、识别规则（app 路径 / CLI / 配置目录是否存在）、`skill_roots`（可多个，并标明哪些根被其他 agent 共享）、`disable`（能否按名单独关掉某个技能，以及怎么关）、`usage`（用量来源，或"统计不到"）、`readonly_roots`（插件、内置）、生效方式（例如"新会话生效"）。
+- **技能身份**：以 SKILL.md frontmatter 的 `name` 为准；与目录名不一致时在看板标出，由用户确认。
+- **分配表**：agent × 技能 → 是否可见。对账（`sync.py`）把它落到目录上：
+  - 对每个技能，按"哪些 agent 应该看到"选择放链接的根：优先用各 agent 的私有根；当应看到的 agent 集合正好覆盖某个共享根的全部读者时，改放共享根。
+  - 共享根造成多看的情况（例如只给 DSH，但 Codex 也读 `~/.agents/skills`），用多看方 agent 的 `disable` 机制关掉（Codex：在 `[skills] config` 里加 `{ name, enabled = false }`）。没有 `disable` 机制的，看板上把两个勾选框联动，并说明"这两个 agent 共用一个目录，只能一起开关"。
+  - 同一 agent 不能因为两个根都放了链接而看到两份。
+  - 链接一律用绝对路径指向 `~/.skill-pilot/store/<name>`。
+- **依赖**：registry 里的 `requires` 列表，按传递关系展开。分配时自动带上依赖，并在看板上说明"因为 X 需要它，已一起勾上"。撤下时，若仍被其他已分配技能依赖，就提示，不静默撤下。依赖来源只有两个：已判定清单 `docs/dependency-decisions.json`（标准写在文件里）和用户在看板上手动加减；不再从 SKILL.md 正文自动匹配依赖建议（2026-10-11 调整）。
+- **Codex 配置编辑**：只增删 Skill Pilot 自己添加的条目（在 registry 里记录是哪些），原有条目一律不动。写入前备份，写入后用 `tomllib` 解析校验，失败就回滚。
+
+## 4. 主要流程
+
+### 4.1 扫描与接入（含首次迁移）
+
+1. 用内置档案识别已安装的 agent。再扫描 `~` 下的点目录和 `~/Library/Application Support`（深度上限约 7，跳过 `node_modules`、`.git`、缓存、`references/`），找出所有包含 `*/SKILL.md` 的目录。不属于任何档案的，按规则归类为"疑似新 agent / 内置 / 插件或市场缓存 / 备份或临时目录（默认隐藏）"。
+2. 看板列出：已接入、已发现未接入、已忽略。首次运行时用户勾选要接入的 agent（默认勾四个主力）。
+3. **核对版本页**：把选中 agent 的所有用户技能目录，加上 AI-Workbench 中三份 source-synced 源码，按技能名分组。内容完全相同的直接合并；不同的列为一组，并给出默认选择：
+   - 内容与来源记录一致的那份（GitHub：目录 tree sha 等于 `skillFolderHash`；飞书：版本号与已装 lark-cli 配套的那份）；
+   - 否则选最近修改的那份。
+   每组用一句话说明差在哪里，例如"Antigravity 里是 1.2.0 旧版，共享目录里是 1.2.23"；完整对比默认折叠。用户改选后确认一次。
+4. 执行：备份所有涉及的根 → 把选中的内容放进 `store/`，第三方技能同时写入 `bases/` → 每个 agent 的初始分配 = 它**迁移前实际可见**的集合（目录里有、且没被停用）→ 把真实目录换成链接 → 提交一次 git。
+5. 校验：迁移前后每个 agent 的可见技能名单必须一致（版本按核对页的选择），任何一项不一致就自动还原并报告。完成页提供"一键还原到迁移前"。
+6. 以后接入新 agent 走同样的 1–5 步，范围只限这个 agent；默认分配保持它原有的技能，另给"跟某个 agent 一样"按钮。
+7. "停止接入"：从勾选表移除，它的目录保持当前状态，不再维护。
+
+### 4.2 勾选表（分配）
+
+行是技能，列是已接入的 agent。每格是勾选框，另外显示：来源、最近一次使用（按 agent）、是否有本地改动、依赖关系。改动先进入"待应用"，页面底部显示"将给 Claude 加 2 个、从 Antigravity 撤下 1 个"，按"应用"后执行对账并提交一次 git。页头显示每个 agent 的技能数和描述字数，以及"应用后变为多少"。按 agent 分别提示生效方式：Claude、DSH 会动态刷新技能目录，正在运行的会话也可能马上看到变化；Codex、Antigravity 在新会话生效（以 spikes.md 为准）。
+
+### 4.3 安装与收编
+
+- **安装**：粘贴 GitHub 链接（仓库或 `tree/<ref>/<path>`）→ 浅克隆到临时目录 → 列出找到的技能供勾选 → 入库并记录来源（仓库、路径、commit、tree sha）→ 写入 `bases/` → 同一个弹窗里勾选给哪些 agent（默认都不勾）。同名技能已存在时转入对比，不覆盖。**不执行技能里的任何安装脚本。**
+- **收编**：每次扫描时，已接入 agent 的根目录里出现真实目录（而不是指向 store 的链接）就算"新装的技能"，看板顶部提示"发现 N 个新装的技能"。一键收编会移进 store，原位置换成链接，保持原来的可见范围。若 `~/.agents/.skill-lock.json` 有它的记录，就继承来源；仓库里已有同名但内容不同的，转入对比。
+
+### 4.4 检查更新与更新
+
+1. 用户按"检查更新"。
+   - GitHub 来源：用 `gh api repos/<o>/<r>/contents/<path>?ref=<branch>`（或 git trees 接口）取远端该目录的 tree sha，和 `bases/` 记录的比较。
+   - 飞书：`lark-cli update --check --json`。
+   - 自制或来源不明的：不检查，看板标"自制，不检查更新"。新收编的技能先自动做来源比对（GitHub 代码搜索 + 内容/历史版本比对），比对不上就记为自制，不打扰用户。
+2. 结果页逐个列出：技能名、来源、改了什么（文件数、增删行数）。**脚本或可执行文件有变化的单独醒目标出**。"让 Codex 用大白话解释这次更新"只作可选按钮。脚本风险用简单规则标出，不调用 AI。
+3. 用户勾选后按"更新选中的"：
+   - 本地没改过（store 与 `bases/` 一致）：直接替换，更新 `bases/`。
+   - 本地改过：默认"用上游的"（先备份、可撤销）；用户可改选"保留我的"（只更新 `bases/` 指纹，记为已看过这一版）；"交给 Codex 合并"作为可选按钮保留。
+   - 飞书：需要用户确认"这会同时升级 lark-cli"。S4 已查明 `lark-cli update` 会调用不固定版本的 `npx skills`，写入 `~/.agents/skills` 并给本机检测到的所有 agent（含未接入的，Antigravity 写的还是它实际不读的目录）放入口，同时改 `~/.agents/.skill-lock.json`。因此 M4 先尝试在临时 HOME 里完成技能导出，确认写出位置后再收进仓库；做不到限定写入范围时，看板只提示"lark-cli 有新版"，用户确认运行后全量重扫、收编并清掉多出来的入口。
+4. 每批更新提交一次 git，结果页提供"撤销这次更新"（revert 后重新对账）。
+
+### 4.5 清理
+
+- 候选条件（全部满足）：至少分配给一个 agent；入库满 60 天（既有技能取 lock 的 `installedAt` 与目录创建时间中较早的）；所有可统计的 agent 在 60 天内都没用过；没有分配给"用量统计不到"的 agent；不是某个 60 天内用过的技能的依赖；最近 60 天内没被用户"留下"过。
+- 页面：名单默认全选；每行显示技能名、分配给了谁、最后一次使用、描述字数。用户取消勾选要留的，按"清理选中的 N 个"。取消勾选的记一次"留下"（当作今天用过）。
+- 清理 = 从所有 agent 撤下（对账删链接、移除相应停用条目），store 保留，打标"已撤下"。看板另有"已撤下"列表，可以一键恢复分配。
+- 页面注明数据覆盖："Claude 的记录只保留最近 30 天"、"Antigravity / DSH 暂时统计不到"（按 S2/S3 结论更新）。
+
+### 4.6 新 agent 调研
+
+"疑似新 agent"旁边有"调研"按钮。按下后用 `codex exec --skip-git-repo-check --ephemeral -C <临时目录> -o <临时目录>/last.txt "<任务卡>" < /dev/null` 后台运行。任务卡给出：疑似目录、目录里的样本、对应 app 的名称和版本。要求产出：
+
+- 一份 JSON 档案（字段同 §3 核心模型）；
+- 一段大白话说明（这个 agent 的技能放在哪、能不能单独关掉某个技能、用量能不能统计、需要重启吗）；
+- 依据链接。
+
+看板展示大白话说明和依据，用户按"确认接入"后写入 `agents.json`，再进入 4.1 的第 6 步。调研失败或依据不足时，显示"没查清楚"，不接入。
+
+### 4.7 agent 里的 `skill-pilot` 技能
+
+技能正文告诉 agent 去调用 CLI：`skill-pilot status`（大白话汇总）、`skill-pilot list --agent <id>`、`skill-pilot assign <skill> --agent <id>` / `unassign`（可直接执行）、`skill-pilot ui`、`skill-pilot check-updates`（只报告）、`skill-pilot cleanup --list`（只报告）。真正执行更新和清理，必须由用户在对话里明确同意，再由 agent 带 `--yes` 运行。这个技能本身也收进 store，分配给四个 agent。CLI 所有命令支持 `--json`。
+
+## 5. 看板界面要求
+
+- 页面：总览（各 agent 技能数、描述字数、待处理提示：新 agent、新装技能、版本冲突）/ 勾选表 / 检查更新 / 清理 / 已撤下 / Agent 管理 / 操作记录（每次写入一行大白话 + 还原按钮）。
+- 所有会改动文件的按钮，先弹确认框，用一两句话说明会发生什么、能不能撤销。
+- 报错写人话："Codex 的配置文件改坏了，已经自动恢复原样"，技术细节折叠显示。
+- 页面会话期间随时可能有 agent 在跑，写入前重新扫描一次，发现外部改动就提示刷新。
+
+## 6. M0 先验证（结果写入 `docs/spikes.md`，含脱敏证据）
+
+| 编号 | 问题 | 通过标准 | 不通过时 |
+| --- | --- | --- | --- |
+| S1 | 各 agent 是否跟随"指向仓库外的绝对路径链接" | 建一个无害测试技能 `skill-pilot-probe` 放到 `~/.skill-pilot/store/`，分别链接进四个 agent 的根目录，在新会话里确认能列出它：Codex 用 `codex debug prompt-input`；Claude 用 `claude -p`；Antigravity 用 `agy -p --sandbox --dangerously-skip-permissions`；DSH 用 `dsh headless`（路径见 §2）。同时确认 Codex 是否递归扫描 `community/` 这类嵌套目录。验证完删除测试链接 | 该 agent 改用"复制 + 对账"模式（store 仍是唯一真实来源，对账时复制并校验指纹），档案里标明 |
+| S2 | DSH 实际读哪些技能目录，有没有可解析的用量记录 | 通过 S1 的探针确认 DSH 的可见范围；在 DSH 的数据目录和 `"/Applications/DeepSeek Harness.app"` 中找到会话记录，能识别出技能读取 | 用量记为"统计不到"（用户已定：此时分配给 DSH 的技能不进清理名单） |
+| S3 | Antigravity 的会话记录能否识别技能调用 | 在 `conversations/*.db` 或 `*.pb` 中找到读取 `SKILL.md` 或调用技能的步骤，并用一次新对话复现 | 同 S2 |
+| S4 | `lark-cli update` 会把技能写到哪里 | 在备份后的环境里（或者先只读分析 lark-cli 的安装逻辑）弄清写入哪些目录、是否更新 `~/.agents/.skill-lock.json`、`--skills-layout` 的影响。**不要为了验证而真的升级**；需要实际运行时先问用户 | 飞书技能的更新改成：看板只提示"lark-cli 有新版"，由用户确认后运行，之后全量重新扫描并收编 |
+| S5 | 来源不明技能的归属 | 用 §2 列出的线索，为 `~/.codex/skills` 的 54 个技能产出归属表（来源链接、路径、置信度高/中/低、依据）。中、低置信度的在核对页让用户确认 | 标"来源不明" |
+| S6 | GitHub 更新检测是否可靠 | 对 lock 里 3 个 GitHub 来源技能，用 `gh api` 取到的远端 tree sha，与 `skillFolderHash` 的比较结果和实际下载对比一致；记录 API 调用次数 | 改用浅克隆 + 本地计算 |
+| S7 | 写死路径会不会断 | 列出所有引用 `~/.codex/skills/`、`~/.agents/skills/`、`~/.claude/skills/` 绝对路径的文件，分成两类：迁移后链接仍在（不受影响）、撤下后会失效。后一类在勾选表撤下时要提示 | — |
+| S8 | Claude 桌面 app 有没有额外的会话记录 | 检查 `~/Library/Application Support/Claude/claude-code-sessions` 和 `local-agent-mode-sessions` 里能否识别技能调用、与 `~/.claude/projects` 是否重复 | 只用 `~/.claude/projects` |
+
+## 7. 里程碑
+
+> 2026-10-11 方向调整后的顺序：M5（用量与清理，进行中）→ **M7 能用起来**（启动器、去掉开发期写入开关、`skill-pilot` 技能，并做上文 §1 的减法：更新默认用上游、去掉依赖自动猜测、AI 只作可选按钮）→ M6 新 agent 调研 → M8 文档与收尾。原“自动判断”一轮取消。
+
+1. **M0 验证** → verify：`docs/spikes.md` 中 S1–S8 都有结论和证据；探针链接已删除。
+2. **M1 只读盘点**：识别 agent、扫描、分类、技能清单、版本冲突、描述字数，看板只读展示 → verify：
+   - 各根的技能数与 §2 一致（如有出入，写明原因）；
+   - 运行前后对所有 agent 根和 `~/.codex/config.toml` 做指纹对比，结果完全不变；
+   - 单测覆盖疑似目录分类（用 §2 的真实路径形态做 fixtures）。
+3. **M2 统一仓库与首次迁移** → verify：
+   - 在一份复制出来的假 home（`HOME=<临时目录>`）里完整跑一遍迁移、还原、再迁移；
+   - 真实迁移前先向用户展示核对页并取得确认；迁移后四个 agent 的可见名单与迁移前一致；S1 的方法抽检每个 agent 至少 3 个技能在新会话可见；
+   - "一键还原"在假 home 中实测能完全恢复（指纹一致）。
+4. **M3 勾选表、依赖、安装、收编** → verify：
+   - 给 Claude 加上 grill-me，grilling 自动一起分配，新会话可用；
+   - 只给 DSH 的技能，Codex 看不到（停用条目生效），且其他原有条目原样保留；
+   - 在测试仓库上完成安装、收编、同名对比三种情况。
+5. **M4 检查更新与更新** → verify：
+   - 用一个自建的测试 GitHub 仓库（或本地 bare 仓库模拟）覆盖三种情况：没改过直接更新、改过选"保留我的"、改过交给 Codex 合并；
+   - "撤销这次更新"能恢复原样；
+   - 脚本文件变化会被醒目标出。
+6. **M5 用量账本与清理** → verify：
+   - Claude、Codex 解析单测（每个会话每个技能只算一次；系统提示里的技能列表不算）；
+   - 写一个独立的一次性脚本重新统计近 30 天的用量，与账本一致；
+   - 用构造数据覆盖全部清理条件，包括"留下后重新计时"、依赖保护、统计不到的 agent。
+7. **M6 新 agent 调研** → verify：对 Cursor 跑一次调研，产出档案和大白话说明，**不接入**（用户没要求接入）。
+8. **M7 `skill-pilot` 技能与启动器** → verify：
+   - 双击 `Skill Pilot.app` 打开看板，关页面 30 秒内进程退出；重复双击不产生第二个进程；
+   - 四个 agent 新会话里能看到 `skill-pilot` 技能，并能用它答出"Claude 现在有哪些技能"。
+9. **M8 文档与收尾**：
+   - 写 `README.md`：功能、目录、还原方法、已知限制；
+   - `AI-Workbench/docs/skills-management.md` 的手工清单改为指向看板，保留规则部分；
+   - 更新 S7 中受影响、且由用户维护的文档路径（AI-Workbench docs、Codex记忆、Claude 记忆 `agent-ecosystem-claude-role.md` 里的技能位置说明）；
+   - 在 `AI-Workbench/docs/AI工具能力地图.md` 和 `Simon's Vault/Simon/Systems/AI工作台索引.md` 登记入口，只写路径和一句用途；
+   - **经用户同意后**，把 AI-Workbench 中三份 source-synced 源码移到废纸篓。
+
+## 8. 安全与边界
+
+- 本地服务只监听 `127.0.0.1`，每次启动随机口令，校验 `Host`/`Origin`，拒绝跨站请求。不做遥测。
+- 任何写 agent 目录、`~/.codex/config.toml` 的操作，先备份到 `~/.skill-pilot/backups/`，写后校验，失败自动还原。只做"真实目录 ↔ 链接"的替换和链接增删，不删除用户文件。唯一的删除入口是看板里的"删除"，需要用户确认，并且只移到废纸篓。
+- 插件目录、内置目录、`~/.codex/skills/.system`、`~/.agents/.skill-lock.json` 只读。
+- 技能是 agent 会照着执行的指令和脚本：安装和更新时不执行其中任何脚本；脚本变化必须醒目展示。
+- 调 Codex（调研、合并、解释）时，只在临时目录里运行，产出必须经用户确认才写入。不把 token、cookie、私有配置放进任务卡、日志或 `docs/spikes.md`。
+- `lark-cli update` 会升级全局 CLI，每次运行前单独征得用户同意。
+- 不 push，不建远程仓库；store 只在本机。
+- 开发期间需要动真实 agent 目录的，只有 M0 的探针（用完删除）和 M2 经用户确认的正式迁移；其他测试一律在假 home 里做。
+
+## 9. 不在本版范围
+
+- 定时检查、自动更新、系统通知、飞书推送。
+- 项目目录里的技能（如某个仓库下的 `.claude/skills`）。
+- 插件技能的分配和更新（只展示）。
+- Kimi、WorkBuddy、Cursor、Trae 的正式接入：走 4.6 流程，由用户按需触发。
+- 多台电脑同步、远程访问看板。
