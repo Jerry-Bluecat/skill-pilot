@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import secrets
+import shutil
 import sqlite3
 import tempfile
 import threading
@@ -23,6 +24,9 @@ from ..sources import github
 
 STATIC = Path(__file__).parent / "static"
 HEARTBEAT_TIMEOUT = 30
+# Browsers slow or pause timers in background tabs, so an open page keeps the
+# dashboard alive until it says goodbye or has been silent this long.
+OPEN_PAGE_TIMEOUT = 24 * 3600
 
 
 class Dashboard(ThreadingHTTPServer):
@@ -45,6 +49,7 @@ class Dashboard(ThreadingHTTPServer):
         self.usage_database = (self.home / '.skill-pilot/usage.sqlite' if preview_allowed(self.home) else
                                Path(self.usage_temporary.name) / 'usage.sqlite')
         self.last_heartbeat = time.monotonic()
+        self.pages = set()
         super().__init__(("127.0.0.1", 0), Handler)
         self.origin = f"http://127.0.0.1:{self.server_port}"
         self.url = f"{self.origin}/?token={self.token}"
@@ -56,7 +61,7 @@ class Dashboard(ThreadingHTTPServer):
         self.usage_temporary.cleanup()
 
     def watch(self):
-        while time.monotonic() - self.last_heartbeat < HEARTBEAT_TIMEOUT or self.labels_progress['running'] or any(r['running'] for r in list(self.update_reviews.values())):
+        while time.monotonic() - self.last_heartbeat < (OPEN_PAGE_TIMEOUT if self.pages else HEARTBEAT_TIMEOUT) or self.labels_progress['running'] or any(r['running'] for r in list(self.update_reviews.values())):
             time.sleep(0.1)
         self.shutdown()
 
@@ -166,6 +171,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         path = urllib.parse.urlsplit(self.path).path
         if path == "/api/heartbeat":
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            page = query.get("page", [""])[0]
+            if page:
+                (self.server.pages.discard if query.get("closing") else self.server.pages.add)(page)
             self.server.last_heartbeat = time.monotonic()
             self.reply(200, {"ok": True})
             return
@@ -211,6 +220,10 @@ class Handler(BaseHTTPRequestHandler):
                 with self.server.update_lock:
                     review = next(reversed(self.server.update_reviews.values()), None)
                     if review is None or not review['running']:
+                        # A long-lived dashboard would otherwise keep every earlier check's downloads.
+                        for old in self.server.update_reviews.values():
+                            shutil.rmtree(old['temporary'], ignore_errors=True)
+                        self.server.update_reviews.clear()
                         review = updates.create(self.server.home, body.get('withdrawn', False))
                         self.server.update_reviews[review['id']] = review
                         self.server.update_thread = threading.Thread(target=updates.check, kwargs={'review': review, 'lock': self.server.update_lock}, daemon=True)

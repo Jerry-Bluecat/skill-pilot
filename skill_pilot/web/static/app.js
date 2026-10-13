@@ -298,10 +298,13 @@ function hideActionBar() {
   setTimeout(() => { if (!$('action-bar').classList.contains('is-open')) bar.hidden = true; }, 200);
 }
 
-/* 心跳：看板关掉后立刻告诉用户。 */
+/* 心跳：看板关掉后立刻告诉用户。
+   浏览器会放慢甚至暂停后台标签页的计时，所以每个页面带上自己的编号，关闭时再说一声，
+   后台据此判断还有没有页面开着，而不是只看心跳间隔。 */
+const pageId = Math.random().toString(36).slice(2);
 async function heartbeat() {
   try {
-    const response = await fetch('/api/heartbeat', {method: 'POST', headers});
+    const response = await fetch('/api/heartbeat?page=' + pageId, {method: 'POST', headers});
     if (!response.ok) throw new Error();
     $('connection').hidden = true;
   } catch {
@@ -2169,6 +2172,10 @@ function renderFooter() {
 async function start() {
   heartbeat();
   setInterval(heartbeat, 10000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) heartbeat(); });
+  addEventListener('pagehide', () => {
+    fetch('/api/heartbeat?closing=1&page=' + pageId, {method: 'POST', headers, keepalive: true}).catch(() => {});
+  });
   renderAgentSummary();
   renderSkillTable();
   renderTasks();

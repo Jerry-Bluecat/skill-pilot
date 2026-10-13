@@ -2,6 +2,7 @@ from tests import set_up_home
 import json
 import threading
 import tempfile
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -49,6 +50,28 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.request("/api/assign", headers, "POST")[0], 405)
         del headers["Origin"]
         self.assertEqual(self.request("/api/heartbeat", headers, "POST")[0], 403)
+
+    def test_open_page_keeps_dashboard_until_it_says_goodbye(self):
+        headers = {"X-Skill-Pilot-Token": self.server.token, "Origin":self.server.origin}
+        with patch("skill_pilot.web.server.HEARTBEAT_TIMEOUT", .02):
+            self.assertEqual(self.request("/api/heartbeat?page=a", headers, "POST")[0], 200)
+            self.server.last_heartbeat -= 120  # background tabs may stay quiet for minutes
+            watcher = threading.Thread(target=self.server.watch)
+            watcher.start()
+            time.sleep(.15)
+            self.assertTrue(watcher.is_alive())
+            self.assertEqual(self.request("/api/heartbeat?page=a&closing=1", headers, "POST")[0], 200)
+            watcher.join(2)
+            self.assertFalse(watcher.is_alive())
+
+    def test_silent_open_page_eventually_stops_dashboard(self):
+        self.server.pages.add("a")
+        self.server.last_heartbeat -= 120
+        with patch("skill_pilot.web.server.OPEN_PAGE_TIMEOUT", 60):
+            watcher = threading.Thread(target=self.server.watch)
+            watcher.start()
+            watcher.join(2)
+        self.assertFalse(watcher.is_alive())
 
     def test_binds_loopback_and_has_no_static_path_traversal(self):
         self.assertEqual(self.server.server_address[0], "127.0.0.1")

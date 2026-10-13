@@ -86,6 +86,18 @@ class UpdateCheckTests(unittest.TestCase):
         self.assertNotIn('_groups', done)
         self.assertNotIn('_state', done['skills'][0])
 
+    def test_new_check_removes_earlier_check_downloads(self):
+        self.server()
+        first = self.request('/api/updates/check', {})[1]
+        self.until(lambda r: not r['running'])
+        temporary = Path(self.dashboard.update_reviews[first['id']]['temporary'])
+        self.assertTrue(temporary.exists())
+        second = self.request('/api/updates/check', {})[1]
+        self.assertNotEqual(first['id'], second['id'])
+        self.assertFalse(temporary.exists())
+        self.assertEqual(list(self.dashboard.update_reviews), [second['id']])
+        self.until(lambda r: not r['running'])
+
     def test_reopening_can_reconnect_after_heartbeat_expires_during_scan(self):
         self.server()
         gate = threading.Event()
