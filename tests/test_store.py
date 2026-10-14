@@ -271,6 +271,12 @@ class MigrationTests(unittest.TestCase):
         config.write_text('secret="must not copy"\n[skills]\nconfig=[]\n')
         (self.home / ".agents/skills/sample").unlink()
         (self.home / ".agents/skills/sample").symlink_to(self.home / ".codex/skills/sample")
+        legacy_root = self.home / '.skill-pilot'
+        legacy_root.mkdir(exist_ok=True)
+        legacy = [legacy_root / ('usage.sqlite' + suffix) for suffix in ['', '-wal', '-shm']]
+        for path in legacy:
+            path.write_bytes(b'legacy database')
+        before = [(p.read_bytes(), p.stat().st_mtime_ns) for p in legacy]
         spec = importlib.util.spec_from_file_location("fake", store.PROJECT / "scripts/make-fake-home.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
@@ -280,6 +286,8 @@ class MigrationTests(unittest.TestCase):
             store.check_links(fake, fake)
             self.assertNotIn("secret", (fake / ".codex/config.toml").read_text())
             self.assertEqual((fake / ".agents/skills/sample").resolve(), fake / ".codex/skills/sample")
+            self.assertFalse(any((fake / '.skill-pilot').glob('usage.sqlite*')))
+        self.assertEqual([(p.read_bytes(), p.stat().st_mtime_ns) for p in legacy], before)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,6 @@ import json
 import os
 import secrets
 import shutil
-import sqlite3
 import tempfile
 import threading
 import time
@@ -19,7 +18,7 @@ from pathlib import Path
 
 from ..scan import scan
 from ..store import SKIP_CONTENT, apply, backups, guard, preview, restore, target_home
-from .. import operations, updates, usage, cleanup, labels
+from .. import operations, updates, cleanup, labels
 from .. import agents as agent_management
 from ..sources import github
 
@@ -44,11 +43,6 @@ class Dashboard(ThreadingHTTPServer):
         self.labels_lock = threading.Lock()
         self.labels_thread = None
         self.labels_progress = {'running': False, 'done': 0, 'total': 0, 'message': '', 'error': ''}
-        self.usage_lock = threading.Lock()
-        self.usage_progress = {'running':False,'done':0,'total':0}
-        self.usage_temporary = tempfile.TemporaryDirectory(prefix='skill-pilot-dashboard-usage-')
-        self.usage_database = (self.home / '.skill-pilot/usage.sqlite' if preview_allowed(self.home) else
-                               Path(self.usage_temporary.name) / 'usage.sqlite')
         self.last_heartbeat = time.monotonic()
         self.pages = set()
         super().__init__(("127.0.0.1", 0), Handler)
@@ -59,7 +53,6 @@ class Dashboard(ThreadingHTTPServer):
         super().server_close()
         if self.update_thread: self.update_thread.join()
         if self.labels_thread: self.labels_thread.join()
-        self.usage_temporary.cleanup()
 
     def watch(self):
         while time.monotonic() - self.last_heartbeat < (OPEN_PAGE_TIMEOUT if self.pages else HEARTBEAT_TIMEOUT) or self.labels_progress['running'] or any(r['running'] for r in list(self.update_reviews.values())):
@@ -108,29 +101,15 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, labels.public_settings(self.server.home))
         elif path == '/api/labels/progress':
             self.reply(200, self.server.labels_progress.copy())
-        elif path == '/api/usage-progress':
-            self.reply(200,self.server.usage_progress.copy())
         elif path == '/api/updates/progress':
             with self.server.update_lock:
                 review = next(reversed(self.server.update_reviews.values()), None)
                 self.reply(200, updates.public(review) if review else None)
-        elif path in ('/api/usage','/api/cleanup'):
+        elif path in ('/api/table', '/api/log', '/api/agents', '/api/cleanup'):
             try:
-                if not self.server.usage_lock.acquire(blocking=False):
-                    self.reply(409,{'error':'正在统计，完成后再生成名单。' if path == '/api/cleanup' else '正在统计用量，请稍候。','retry':path == '/api/usage'})
-                    return
-                try:
-                    result = usage.report(self.server.home,self.server.usage_database,progress=self.server.usage_progress) if path == '/api/usage' else cleanup.preview(self.server.home,self.server.usage_database)
-                finally:
-                    if path == '/api/usage': self.server.usage_progress['running'] = False
-                    self.server.usage_lock.release()
-                self.reply(200,result)
-            except (ValueError,OSError,KeyError,sqlite3.Error) as error:
-                self.reply(409,{'error':('正在统计，完成后再生成名单。' if path == '/api/cleanup' else '用量暂时读不到，技能分配仍可照常操作。') if isinstance(error,sqlite3.Error) else str(error), 'retry':getattr(error,'sqlite_errorcode',None) in (sqlite3.SQLITE_BUSY,sqlite3.SQLITE_LOCKED)})
-        elif path in ('/api/table', '/api/log', '/api/agents'):
-            try:
-                result = (operations.table(self.server.home,self.server.usage_database) if path == '/api/table' else
-                          agent_management.overview(self.server.home) if path == '/api/agents' else operations.history(self.server.home))
+                result = (operations.table(self.server.home) if path == '/api/table' else
+                          agent_management.overview(self.server.home) if path == '/api/agents' else
+                          cleanup.list_withdrawn(self.server.home) if path == '/api/cleanup' else operations.history(self.server.home))
                 self.reply(200, result)
             except (ValueError, OSError, KeyError) as error:
                 self.reply(409, {'error': str(error)})
@@ -180,7 +159,7 @@ class Handler(BaseHTTPRequestHandler):
             self.server.last_heartbeat = time.monotonic()
             self.reply(200, {"ok": True})
             return
-        read_routes = {'/api/assignment/preview', '/api/install/inspect', '/api/incoming/compare',
+        read_routes = {'/api/assignment/preview', '/api/cleanup/preview', '/api/install/inspect', '/api/incoming/compare',
                        '/api/updates/check', '/api/updates/explain', '/api/updates/merge', '/api/updates/calibrate',
                        '/api/agents/join/preview', '/api/agents/leave/preview', '/api/agents/ignore/preview'}
         write_routes = {'/api/assignment/apply', '/api/dependencies', '/api/install/apply', '/api/absorb', '/api/undo',
@@ -244,6 +223,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/assignment/preview':
                 self.reply(200, operations.preview_assign(body['changes'], self.server.home))
                 return
+            if path == '/api/cleanup/preview':
+                self.reply(200, cleanup.preview(body.get('skills'), self.server.home))
+                return
             if path == '/api/agents/join/preview':
                 self.reply(200, agent_management.preview_join(body['agents'], self.server.home))
                 return
@@ -270,12 +252,27 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(200, {'comparison': compare_files(existing, incoming)})
                 return
             if body.get("confirmed") is not True:
+                if path == '/api/cleanup/apply':
+                    try:
+                        plan = cleanup.preview(body.get('skills'), self.server.home)
+                    except ValueError as error:
+                        self.reply(400, {'error': str(error)})
+                        return
+                    if plan['dependency_warnings'] or plan['path_warnings']:
+                        self.reply(200, {'needs_confirmation': True, **plan})
+                        return
                 self.reply(400, {"error": "请先核对，并确认这次操作。"})
                 return
             if not preview_allowed(self.server.home):
                 self.reply(403, {"error": "当前处于只读模式，文件没有改动。"})
                 return
-            if path in {'/api/agents/join/apply', '/api/agents/leave/apply', '/api/agents/ignore/apply'} and (not isinstance(body.get('revision'), str) or not body['revision']):
+            if path == '/api/cleanup/apply':
+                try:
+                    cleanup.preview(body.get('skills'), self.server.home)
+                except ValueError as error:
+                    self.reply(400, {'error': str(error)})
+                    return
+            if path in {'/api/agents/join/apply', '/api/agents/leave/apply', '/api/agents/ignore/apply', '/api/cleanup/apply'} and (not isinstance(body.get('revision'), str) or not body['revision']):
                 raise ValueError('请先读取当前状态，再确认这次操作。')
             if path == "/api/migration/apply":
                 result = apply(body["plan_id"], self.server.home, body["agents"], body.get("choices"), body.get("sources"))
@@ -303,22 +300,16 @@ class Handler(BaseHTTPRequestHandler):
                     result = updates.apply(review, body['skills'], body.get('choices'), True,
                                            body.get('merge_ids'), body.get('confirm_lark_cli', False))
             elif path == '/api/cleanup/apply':
-                if not self.server.usage_lock.acquire(blocking=False):
-                    raise ValueError('正在统计，完成后再生成名单。')
-                try:
-                    result = cleanup.apply(body.get('keep'),True,self.server.home,self.server.usage_database,
-                                           body['revision'],body['candidates'])
-                finally:
-                    self.server.usage_lock.release()
+                result = cleanup.apply(body.get('skills'), True, self.server.home, body['revision'])
             elif path == '/api/withdrawn/restore':
                 result = cleanup.restore(body['skills'],self.server.home,body['revision'])
             else:
                 result = operations.undo(body['id'], body['revision'], self.server.home)
             self.server.inventory = scan(self.server.home)
             self.reply(200, result)
-        except (ValueError, OSError, KeyError, TypeError, StopIteration, sqlite3.Error) as error:
+        except (ValueError, OSError, KeyError, TypeError, StopIteration) as error:
             message = '设置没能保存，请核对后再试。' if path in settings_routes and not isinstance(error, ValueError) else str(error)
-            self.reply(409, {"error": '正在统计，完成后再生成名单。' if isinstance(error,sqlite3.Error) else message or "操作没能完成，请重新预览。"})
+            self.reply(400 if path == '/api/cleanup/preview' else 409, {"error": message or "操作没能完成，请重新预览。"})
 
 
 def preview_allowed(home):

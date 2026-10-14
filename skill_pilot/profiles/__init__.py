@@ -22,7 +22,6 @@ def validate(profile):
         raise ValueError('agent 放置技能的目录必须是它读取的目录之一。')
     paths = roots + [r for r, _ in profile.get('readonly_roots', [])]
     paths += profile.get('detect', {}).get('config_dirs', [])
-    paths += (profile.get('usage') or {}).get('roots', [])
     if any(not r or Path(r).is_absolute() or '..' in Path(r).parts for r in paths):
         raise ValueError('agent 目录必须位于主目录内。')
     protected = [r for p in PROFILES for r, _ in p['readonly_roots']]
@@ -33,8 +32,7 @@ def validate(profile):
     if type(profile.get('nested')) is not bool or profile.get('activation') not in {'immediate', 'new_session'}:
         raise ValueError('agent 的生效方式没有读懂，请核对档案。')
     adapters = {p['disable'] for p in PROFILES}
-    readers = {(p['usage'] or {}).get('reader') for p in PROFILES}
-    if profile.get('disable') not in adapters or (profile.get('usage') or {}).get('reader') not in readers:
+    if profile.get('disable') not in adapters:
         raise ValueError('agent 档案里的读取方式没有接入。')
     if not set(profile.get('manual_only', [])) <= {'disable-model-invocation', 'agents/openai.yaml'}:
         raise ValueError('agent 档案里的手动调用标记没有读懂。')
@@ -47,7 +45,8 @@ def all_profiles(home=None):
         validate(profile)
         if profile['id'] in {p['id'] for p in profiles}:
             raise ValueError('agent 编号重复，请核对档案。')
-        profiles.append(profile)
+        # Older custom profiles may contain fields that have since been retired.
+        profiles.append({k: v for k, v in profile.items() if k in PROFILES[0]})
     return profiles
 
 
@@ -70,10 +69,8 @@ def custom(identifier, name, root):
     return validate({'id': identifier, 'name': name.strip(), 'detect': {'config_dirs': [str(Path(root).parent)], 'apps': [], 'cli': None},
                      'skill_roots': [root], 'link_root': root, 'nested': False, 'readonly_roots': [],
                      'activation': 'new_session', 'activation_note': '新会话生效', 'manual_only': [],
-                     'disable': None, 'disable_note': '没有独立停用设置', 'usage': None,
-                     'usage_note': '统计不到用量：还没接入它的使用记录。',
-                     'usage_reason': '统计不到用量：还没接入它的使用记录。',
-                     'visibility_note': '按技能目录直属条目盘点；尚未核验用量记录。'})
+                     'disable': None, 'disable_note': '没有独立停用设置',
+                     'visibility_note': '按技能目录直属条目盘点。'})
 
 
 def reads(profile, entry):

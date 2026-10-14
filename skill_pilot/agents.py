@@ -25,8 +25,8 @@ def overview(home=None):
                any((home / r).is_dir() for r in p['skill_roots'])]
     return {'revision': operations.revision(home, local['onboarded']) if (home / '.skill-pilot/registry.json').is_file() else None,
             'managed': [{'id': p['id'], 'name': p['name'], 'skill_roots': p['skill_roots'],
-                         'activation_text': profiles.activation_text(p), 'usage_available': p['usage'] is not None,
-                         'usage_note': p['usage_note'], 'shared_with': [q['id'] for q in managed if q != p and set(q['skill_roots']) & set(p['skill_roots'])],
+                         'activation_text': profiles.activation_text(p),
+                         'shared_with': [q['id'] for q in managed if q != p and set(q['skill_roots']) & set(p['skill_roots'])],
                          'can_leave': len(managed) > 1} for p in managed],
             'suggested': suggestions(home), 'ignored': ignored,
             'must_select_together': profiles.shared_groups(catalog)}

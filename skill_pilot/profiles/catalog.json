@@ -45,15 +45,7 @@
       "disable": "codex_config",
       "disable_note": "config.toml 中按名称或文件位置停用",
       "activation": "new_session",
-      "activation_note": "新会话生效",
-      "usage": {
-        "reader": "codex",
-        "roots": [
-          ".codex/sessions",
-          ".codex/archived_sessions"
-        ]
-      },
-      "usage_note": "会话文件中的实际工具调用"
+      "activation_note": "新会话生效"
     },
     {
       "id": "claude",
@@ -87,14 +79,7 @@
       "disable": null,
       "disable_note": "本轮未验证",
       "activation": "immediate",
-      "activation_note": "目录改变后会动态刷新",
-      "usage": {
-        "reader": "claude",
-        "roots": [
-          ".claude/projects"
-        ]
-      },
-      "usage_note": "会话文件中的技能调用或读取"
+      "activation_note": "目录改变后会动态刷新"
     },
     {
       "id": "antigravity",
@@ -133,10 +118,7 @@
       "disable": null,
       "disable_note": "本轮未验证",
       "activation": "new_session",
-      "activation_note": "新会话核验",
-      "usage": null,
-      "usage_note": "统计不到用量：还没找到读取它使用记录的办法。",
-      "usage_reason": "统计不到用量：还没找到读取它使用记录的办法。"
+      "activation_note": "新会话核验"
     },
     {
       "id": "dsh",
@@ -164,14 +146,7 @@
       "disable": null,
       "disable_note": "技能正文可限制自动调用；独立停用名单未验证",
       "activation": "immediate",
-      "activation_note": "目录改变后会动态刷新",
-      "usage": {
-        "reader": "dsh",
-        "roots": [
-          ".dsh/sessions"
-        ]
-      },
-      "usage_note": "会话格式已验证，v3/v4 按会话去重；实际覆盖见用量页"
+      "activation_note": "目录改变后会动态刷新"
     }
   ],
   "default_ignored": [

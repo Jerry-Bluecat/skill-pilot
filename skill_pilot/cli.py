@@ -25,13 +25,10 @@ def main():
     migrate.add_argument("--json", action="store_true")
     saved = commands.add_parser("backups", help="查看迁移前备份")
     saved.add_argument("--json", action="store_true")
-    usage_command = commands.add_parser('usage', help='查看技能用量和数据覆盖')
-    usage_command.add_argument('--json', action='store_true')
-    cleanup_command = commands.add_parser('cleanup', help='预览或确认清理长期不用的技能')
-    cleanup_mode = cleanup_command.add_mutually_exclusive_group(required=True)
-    cleanup_mode.add_argument('--list', action='store_true')
-    cleanup_mode.add_argument('--yes', action='store_true')
-    cleanup_command.add_argument('--keep', action='extend', nargs='+', default=[])
+    cleanup_command = commands.add_parser('cleanup', help='手动挑选技能撤下，或查看已撤下的技能')
+    cleanup_command.add_argument('skills', nargs='*', metavar='SKILL')
+    cleanup_command.add_argument('--list', action='store_true')
+    cleanup_command.add_argument('--yes', action='store_true')
     cleanup_command.add_argument('--json', action='store_true')
     withdrawn_command = commands.add_parser('restore-withdrawn', help='恢复已撤下技能的原分配')
     withdrawn_command.add_argument('skills', nargs='+')
@@ -74,39 +71,36 @@ def main():
         if name == 'undo':
             command.add_argument('id')
     args = parser.parse_args()
+    if args.command == 'cleanup':
+        if args.list and (args.skills or args.yes):
+            parser.error('--list 只查看已撤下的技能，不能同时指定技能或 --yes。')
+        if not args.list and not args.skills:
+            parser.error('请指定要撤下的技能，或用 --list 查看已撤下的技能。')
     def fail(error):
         print(json.dumps({'error': str(error)}, ensure_ascii=False) if args.json else str(error))
         raise SystemExit(1)
-    if args.command in {'usage','cleanup','restore-withdrawn','set-source'}:
-        from . import usage, cleanup
+    if args.command in {'cleanup','restore-withdrawn','set-source'}:
+        from . import cleanup
         try:
-            if args.command == 'usage':
-                result = usage.report()
-            elif args.command == 'cleanup':
-                result = cleanup.preview() if args.list else cleanup.apply(args.keep,confirmed=True)
+            if args.command == 'cleanup':
+                result = (cleanup.list_withdrawn() if args.list else
+                          cleanup.apply(args.skills, confirmed=True) if args.yes else cleanup.preview(args.skills))
             elif args.command == 'restore-withdrawn':
                 result = cleanup.restore(args.skills)
             else:
                 result = operations.set_source(args.skill,args.repo,args.path,args.yes)
             if args.json:
                 print(json.dumps(result,ensure_ascii=False,indent=2))
-            elif args.command in {'usage','cleanup'} and (args.command == 'usage' or args.list):
-                for agent, row in result['coverage'].items():
-                    print(agent+'：'+row['message'])
-                if args.command == 'usage':
-                    for row in result['skills']:
-                        print(row['name']+'：'+('；'.join(a+' '+t[:10] for a,t in row['last_used'].items()) or '没有使用记录'))
-                else:
-                    print(f'共有 {len(result["candidates"])} 个清理候选。')
-                    for row in result['candidates']:
-                        print(row['name']+'：分配给 '+ '、'.join(row['assigned_agents'])+'；最近使用 '+(row['last_used_at'] or '没有记录')+f'；描述 {row["description_chars"]} 字')
-                    for agent, chars in result['savings'].items():
-                        print(f'{agent} 清理后可省 {chars} 字')
-                    print('已撤下：'+'、'.join(r['name'] for r in result['withdrawn']))
+            elif args.command == 'cleanup' and args.list:
+                print('已撤下：'+'、'.join(r['name'] for r in result['withdrawn']) if result['withdrawn'] else '还没有已撤下的技能。')
             else:
                 print(result['message'])
+                for line in result.get('dependency_warnings', []):
+                    print(line)
                 for warning in result.get('path_warnings',[]):
                     print('受影响的文件：'+warning['file'])
+                if args.command == 'cleanup' and not args.yes:
+                    print('请核对上述影响，加 --yes 执行。')
             return
         except (ValueError,OSError,KeyError,TypeError) as error:
             fail(error)

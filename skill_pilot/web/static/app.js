@@ -196,7 +196,7 @@ $('task-bar').addEventListener('click', event => {
      任务条转成错误样式（写入不给「重试」，让用户看清原因自己决定）。
    返回 work() 的结果；失败返回 null，不往外抛。 */
 const WRITE_LOCK_SELECTORS = [
-  '#skills-rows input[data-skill]', '#action-bar button', '#skills-refresh', '#skills-install',
+  '#skills-list button[data-skill]', '#action-bar button', '#skills-refresh', '#skills-install',
   '#cleanup-rows input[data-cleanup]', '#withdrawn-list button', '#withdrawn-refresh', '#withdrawn-check',
   '#updates-list input', '#updates-list select', '#updates-list button', '#updates-check',
   '#log-list button', '#log-refresh', '#detail-body button', '#detail-body select',
@@ -272,7 +272,7 @@ async function runWrite({button = null, busyText, taskText = busyText, success =
 }
 
 /* 底部固定操作栏：只在有事情可做时出现。 */
-function showActionBar({text, note = '', buttons = []}) {
+function showActionBar({text, note = '', buttons = [], items = '', extra = ''}) {
   $('action-summary').textContent = text;
   $('action-note').textContent = note;
   $('action-note').hidden = !note;
@@ -286,6 +286,12 @@ function showActionBar({text, note = '', buttons = []}) {
     button.addEventListener('click', () => item.action(button));
     box.append(button);
   }
+  $('action-list').innerHTML = items;
+  $('action-list').hidden = !items;
+  const wasOpen = $('action-extra').querySelector('details')?.open;
+  $('action-extra').innerHTML = extra;
+  $('action-extra').hidden = !extra;
+  if (wasOpen && $('action-extra').querySelector('details')) $('action-extra').querySelector('details').open = true;
   const bar = $('action-bar');
   bar.hidden = false;
   document.body.classList.add('has-action-bar');
@@ -297,6 +303,8 @@ function hideActionBar() {
   bar.classList.remove('is-open');
   document.body.classList.remove('has-action-bar');
   $('action-buttons').innerHTML = '';
+  $('action-list').innerHTML = '';
+  $('action-extra').innerHTML = '';
   setTimeout(() => { if (!$('action-bar').classList.contains('is-open')) bar.hidden = true; }, 200);
 }
 
@@ -353,19 +361,17 @@ const state = {
   agentsView: null,
   catalog: new Map(),
   skillIndex: new Map(),
-  openGroups: new Set(),
-  usage: null,
-  usageIndex: new Map(),
+  groupIndex: new Map(),
   saved: {},
   draft: {},
   pending: null,
   pendingClick: null,
   autoAdded: new Map(),   // 「技能|agent」→ 需要它的那个技能（预览的 auto_added）
   detail: null,
-  filter: 'all',
+  agent: null,
+  tab: 'on',
   cleanup: null,
   cleanupSelected: new Set(),
-  cleanupTries: 0,
   logs: [],
 };
 
@@ -441,36 +447,15 @@ function friendlyDate(value) {
   return date.getFullYear() === new Date().getFullYear() ? text : `${date.getFullYear()} 年 ${text}`;
 }
 
-/* agent 摘要：一格一个 agent，格数随 agent 数量自动换行。
-   第二行平时写生效方式，有没应用的改动时换成本次应用后的数字，格子高度不变。 */
-function renderAgentSummary() {
-  const box = $('agent-summary');
-  if (!state.agents.length) {
-    box.innerHTML = '<p class="agent-chip"><span class="agent-line"><span class="agent-name muted">正在读取各 agent 情况…</span></span><span class="agent-note"></span></p>';
-    return;
-  }
-  box.innerHTML = state.agents.map(agent => {
-    const after = state.pending?.after?.[agent.id];
-    const changed = after && (after.count !== agent.count || after.description_chars !== agent.description_chars);
-    const scan = state.inventory?.agents?.find(a => a.id === agent.id);
-    const tip = [
-      `${agent.name}：${agent.activation_text}`,
-      scan && scan.visible_skill_count !== null ? `现在实际能用 ${number(scan.visible_skill_count)} 个技能，说明 ${number(scan.description_chars)} 字` : '',
-      changed ? `应用后 ${number(after.count)} 个技能，说明 ${number(after.description_chars)} 字` : '',
-    ].filter(Boolean).join('；');
-    const second = changed
-      ? `<span class="agent-delta">应用后 ${number(after.count)} 个 / ${number(after.description_chars)} 字</span>`
-      : escape(agent.activation_text || '');
-    return `<div class="agent-chip" title="${escape(tip)}">
-      <p class="agent-line"><span class="agent-name">${escape(agent.name)}</span>
-        <span class="agent-stats">${number(agent.count)} 个技能 · <span class="agent-word">说明 </span>${number(agent.description_chars)} 字</span></p>
-      <p class="agent-note">${second}</p>
-    </div>`;
-  }).join('');
+/* 地址里记着在哪一页、技能页选的哪个 agent，刷新后回到原处。 */
+function rememberPlace() {
+  const place = state.page === 'skills' && state.agent ? `skills/${state.agent}` : state.page;
+  history.replaceState(null, '', location.pathname + location.search + '#' + place);
 }
 
 function showPage(page) {
   state.page = page;
+  rememberPlace();
   for (const section of document.querySelectorAll('.page-section')) {
     section.hidden = section.id !== 'page-' + page;
   }
@@ -499,249 +484,277 @@ function renderActionBar() {
   return hideActionBar();
 }
 
-/* ==================== 技能页：表格、筛选、待应用改动 ==================== */
+/* ==================== 技能页：左边选 agent，右边是它的技能，改动先进底部托盘 ==================== */
 
-const STALE_DAYS = 60;
 const PREVIEW_DEBOUNCE_MS = 100;
 let previewBusy = false;
 let previewSequence = 0;
 let previewTimer = null;
 let assignmentErrors = {};
 
-function daysSince(value) {
-  if (!value) return null;
-  const time = Date.parse(value.length <= 10 ? value + 'T00:00:00' : value);
-  if (Number.isNaN(time)) return null;
-  return Math.floor((Date.now() - time) / 86400000);
+/* agent 的颜色：按表里的顺序从一组颜色里取，全页同一个 agent 用同一种颜色。 */
+const AGENT_COLORS = ['#2F5BD3', '#C4552B', '#6D4BC2', '#0F7C6E', '#93650A', '#B0346B', '#3D7A1F', '#5B6B85'];
+function agentColor(id) {
+  const index = state.agents.findIndex(agent => agent.id === id);
+  return AGENT_COLORS[(index < 0 ? state.agents.length : index) % AGENT_COLORS.length];
+}
+const swatch = id => `<span class="swatch" style="--c:${agentColor(id)}" aria-hidden="true"></span>`;
+
+function currentAgent() {
+  return state.agents.find(agent => agent.id === state.agent) || state.agents[0] || null;
 }
 
-/* 各 agent 里最近的一次使用，合成一句话。统计不到的 agent 不参与比较。 */
-function lastUseLabel(name) {
-  if (!state.usage) return {text: '还没统计', days: null};
-  const coverage = state.usage.coverage || {};
-  const available = state.agents.map(agent => agent.id).filter(id => coverage[id]?.available);
-  if (!available.length) return {text: '统计不到', days: null};
-  const row = state.usageIndex.get(name);
-  const dates = available.map(id => row?.last_used?.[id]).filter(Boolean).sort();
-  if (!dates.length) return {text: '从没用过', days: null};
-  const days = daysSince(dates[dates.length - 1]);
-  if (days === null) return {text: '从没用过', days: null};
-  if (days <= 0) return {text: '今天用过', days: 0};
-  if (days <= STALE_DAYS) return {text: `${days} 天前`, days};
-  return {text: `${days} 天没用`, days};
-}
+const groupOf = name => state.groupIndex.get(name) || '未分组';
+const assignedNow = (name, agentId) => (state.saved[name] || []).includes(agentId);
+const assignedAfter = (name, agentId) => (state.draft[name] || []).includes(agentId);
+const wan = value => value >= 10000 ? `${(value / 10000).toFixed(1)} 万` : number(value);
 
-function indexUsage(report) {
-  state.usage = report;
-  state.usageIndex = new Map((report?.skills || []).map(row => [row.name, row]));
-}
-
-function skillRows() {
-  const query = $('skills-search').value.trim().toLowerCase();
-  const filter = state.filter;
-  return (state.table?.skills || []).filter(skill => {
-    if (query && !(skill.name + ' ' + skill.title + ' ' + skill.summary + ' ' + skill.description).toLowerCase().includes(query)) return false;
-    if (filter === 'unassigned') return !(state.draft[skill.name] || []).length;
-    if (filter === 'modified') return Boolean(skill.local_modified);
-    if (filter === 'dependency') return skill.requires.length > 0;
-    if (filter === 'stale') {
-      const label = lastUseLabel(skill.name);
-      return label.days === null || label.days > STALE_DAYS;
-    }
-    return true;
-  });
-}
-
-function emptySkillsText() {
-  if ($('skills-search').value.trim()) return '没有找到这个技能，换个词试试。';
-  if (state.filter === 'unassigned') return '每个技能都至少给了一个 agent。';
-  if (state.filter === 'stale') return '没有很久没用的技能。';
-  if (state.filter === 'modified') return '没有你改过的技能。';
-  if (state.filter === 'dependency') return '没有带依赖的技能。';
-  return '还没有登记任何技能。';
-}
-
-/* 这个格子还没应用：草稿和已应用的分配不一样。 */
-function cellPending(skill, agent) {
-  const assigned = state.draft[skill.name] || [];
-  return assigned.includes(agent.id) !== skill.assigned_agents.includes(agent.id);
-}
-
-/* 依赖自动带上的格子：后台给的 auto_added 直接说清是哪个技能需要它。 */
-function autoAddedBy(skillName, agentId) {
-  return state.autoAdded.get(skillName + '|' + agentId) || '';
-}
-
-/* 依赖说明的句子，用中文名：“因为 多智能体分派 需要 营销技能路由，已一起勾上给某个 agent”。
-   一个 agent 有多条时用“；”连起来；底部操作栏把所有 agent 的合在一起。 */
-function autoAddedNote() {
-  const parts = [];
-  for (const agent of tableAgents()) {
-    for (const [key, because] of state.autoAdded) {
-      const [skill, agentId] = key.split('|');
-      if (agentId !== agent.id) continue;
-      parts.push(`因为 ${titleOf(because)} 需要 ${titleOf(skill)}，已一起勾上给 ${agent.name}`);
-    }
+/* 每个 agent 开场先读的字数：现在的（已应用）和应用后的（草稿），已应用部分按分组分段。 */
+function agentLoad(agentId) {
+  const groups = new Map();
+  let now = 0, after = 0, plus = 0, minus = 0, countNow = 0, countAfter = 0;
+  for (const skill of state.table?.skills || []) {
+    const was = assignedNow(skill.name, agentId), will = assignedAfter(skill.name, agentId);
+    const chars = skill.description_chars || 0;
+    if (was) { now += chars; countNow++; }
+    if (will) { after += chars; countAfter++; }
+    if (was && will) groups.set(groupOf(skill.name), (groups.get(groupOf(skill.name)) || 0) + chars);
+    if (!was && will) plus += chars;
+    if (was && !will) minus += chars;
   }
-  return parts.join('；');
+  return {groups, now, after, plus, minus, countNow, countAfter};
 }
 
-/* 格子下方的说明：有草稿看预览给的 cell_notes，没草稿看表里带的。 */
+function loadMax(loads) {
+  const top = Math.max(5000, ...Object.values(loads).flatMap(load => [load.now, load.after]));
+  return Math.ceil(top / 5000) * 5000;
+}
+
+/* 字数条：已应用的按分组分段；没应用的改动里，加上的部分是黄色斜纹，撤下的部分是空心斜纹。 */
+function loadHtml(agentId, load, max, big = false) {
+  const pct = value => `${(value / max * 100).toFixed(2)}%`;
+  const segs = [...load.groups].sort((a, b) => b[1] - a[1]).map(([group, chars]) =>
+    `<span class="load-seg" style="width:${pct(chars)}" title="${escape(group)}：${number(chars)} 字"></span>`).join('');
+  const minus = load.minus ? `<span class="load-minus" style="width:${pct(load.minus)}" title="会撤下 ${number(load.minus)} 字"></span>` : '';
+  const plus = load.plus ? `<span class="load-plus" style="width:${pct(load.plus)}" title="会加上 ${number(load.plus)} 字"></span>` : '';
+  const ticks = [];
+  for (let at = 10000; at < max; at += 10000) ticks.push(`<i style="left:${pct(at)}"></i>`);
+  const delta = load.after - load.now;
+  const deltaText = delta ? ` → <span class="delta">${wan(load.after)} 字（${delta > 0 ? '+' : '−'}${number(Math.abs(delta))}）</span>` : '';
+  return `<div class="load${big ? ' load-big' : ''}" style="--c:${agentColor(agentId)}">
+    <div class="load-track" role="img" aria-label="每次开对话先读 ${number(load.now)} 字技能说明${delta ? `，应用后 ${number(load.after)} 字` : ''}">${segs}${minus}${plus}<span class="load-ticks">${ticks.join('')}</span></div>
+    <span class="load-text" title="每开一次新对话，agent 都要先把分给它的技能说明读一遍">开场先读 <b>${wan(load.now)} 字</b>${deltaText}</span>
+  </div>`;
+}
+
+/* 左栏：每个 agent 一行，带字数条。选中的那个决定右边显示谁的技能。 */
+function renderAgentSummary() {
+  const rail = $('agent-rail');
+  if (!state.table || !state.agents.length) {
+    rail.innerHTML = '<p class="item-note">正在读取各 agent…</p>';
+    return;
+  }
+  const loads = Object.fromEntries(state.agents.map(agent => [agent.id, agentLoad(agent.id)]));
+  const max = loadMax(loads);
+  const current = currentAgent()?.id;
+  rail.innerHTML = state.agents.map(agent => {
+    const load = loads[agent.id];
+    const count = load.countAfter !== load.countNow ? `${load.countNow} → ${load.countAfter} 个` : `${load.countNow} 个`;
+    return `<button class="rail-item" data-pick-agent="${escape(agent.id)}" aria-current="${agent.id === current}">
+      <span class="rail-name"><span>${swatch(agent.id)}${escape(agent.name)}</span><small>${count}</small></span>
+      ${loadHtml(agent.id, load, max)}
+    </button>`;
+  }).join('');
+}
+
+function pickAgent(id) {
+  state.agent = id;
+  rememberPlace();
+  renderAgentSummary();
+  renderSkillTable();
+}
+
+/* 左栏下面的提醒：发现新 agent、更新情况。都只给一个去处，不在这里直接改东西。 */
+function renderRailNotes() {
+  const ignored = new Set((state.agentsView?.ignored || []).map(item => (item && typeof item === 'object') ? item.id : item));
+  const suggested = (state.agentsView?.suggested || []).filter(item => !ignored.has(item.id));
+  const notes = suggested.map(item => `<div class="rail-note">
+      <p><span class="rail-dot"></span><strong>发现新 agent：${escape(item.name)}</strong></p>
+      <small>${item.skill_count ? `它的文件夹里有 ${number(item.skill_count)} 个技能，` : ''}接入后就能在这里一起管。</small>
+      <div class="row-wrap"><button class="btn btn-small" data-goto="settings">去接入…</button></div>
+    </div>`);
+  const review = updateState.review;
+  const waiting = review && !review.running
+    ? review.skills.filter(row => row.has_update && !['已更新', '已保留我的'].includes(row.status)).length : 0;
+  if (review?.running) {
+    notes.push('<div class="rail-note"><p><strong>正在检查更新…</strong></p><small>进度显示在页头。</small></div>');
+  } else if (waiting) {
+    notes.push(`<div class="rail-note"><p><span class="rail-dot"></span><strong>${waiting} 个技能有新版</strong></p>
+      <small>更新前会先让你看改了什么。</small>
+      <div class="row-wrap"><button class="btn btn-small" data-goto="updates">去看看</button></div></div>`);
+  } else {
+    notes.push(`<div class="rail-note"><p><strong>${review ? '刚检查过，没有新版' : '检查更新'}</strong></p>
+      <small>大约半分钟，只查不装。</small>
+      <div class="row-wrap"><button class="btn btn-small" data-check-updates>${review ? '再查一次' : '检查更新'}</button></div></div>`);
+  }
+  $('rail-notes').innerHTML = notes.join('');
+}
+
+/* 这个格子的说明：有草稿看预览给的 cell_notes，没草稿看表里带的。 */
 function cellNote(skill, agent) {
   const notes = state.pending ? state.pending.cell_notes?.[skill.name] : skill.cell_notes;
   return notes?.[agent.id] || '';
 }
 
-function tableAgents() {
-  return state.agents;
+/* 依赖自动带上的：后台给的 auto_added 直接说清是哪个技能需要它。 */
+function autoAddedBy(skillName, agentId) {
+  return state.autoAdded.get(skillName + '|' + agentId) || '';
 }
 
-function skillRowHtml(skill) {
-  const assigned = state.draft[skill.name] || [];
+function pendingNote(name, agentId) {
+  const because = autoAddedBy(name, agentId);
+  if (!assignedAfter(name, agentId)) return '待应用：会撤下，文件还留着';
+  return because ? `待应用：自动带上，因为「${titleOf(because)}」要用它` : '待应用：会加上';
+}
+
+function skillRowHtml(skill, agent) {
+  const on = assignedAfter(skill.name, agent.id);
+  const pending = on !== assignedNow(skill.name, agent.id);
+  const error = assignmentErrors[skill.name + '|' + agent.id];
+  const note = cellNote(skill, agent);
   const locked = Boolean(writeBusy) || !state.table.write_allowed;
-  const tags = [
-    skill.local_modified ? '<span class="tag tag-warn">你改过</span>' : '',
-    skill.requires.length ? '<span class="tag tag-quiet">有依赖</span>' : '',
+  const status = error ? `<span class="row-note is-error">${escape(error)}</span>`
+    : pending ? `<span class="row-note is-pending">${escape(pendingNote(skill.name, agent.id))}</span>`
+    : note ? `<span class="row-note">${escape(note)}</span>` : '';
+  const flags = [
+    skill.local_modified ? '<span class="flag">你改过</span>' : '',
+    skill.requires.length ? '<span class="flag">会带上别的技能</span>' : '',
   ].join('');
-  const cells = tableAgents().map(agent => {
-    const error = assignmentErrors[skill.name + '|' + agent.id];
-    const note = cellNote(skill, agent);
-    const pending = cellPending(skill, agent);
-    const because = autoAddedBy(skill.name, agent.id);
-    const mark = !pending ? '' : because
-      ? `<small class="cell-mark cell-auto">自动带上</small>
-        <small class="cell-note">因为 ${escape(titleOf(because))} 需要它</small>`
-      : '<small class="cell-mark">待应用</small>';
-    return `<td class="cell-check${pending ? ' cell-pending' : ''}">
-      <label class="check-hit"><input type="checkbox" data-skill="${escape(skill.name)}" data-agent="${escape(agent.id)}"
-        aria-label="${escape(agent.name + ' 使用 ' + titleOf(skill.name))}"
-        ${assigned.includes(agent.id) ? 'checked' : ''} ${locked ? 'disabled' : ''}></label>
-      ${mark}
-      ${note ? `<small class="cell-note">${escape(note)}</small>` : ''}
-      ${error ? `<small class="cell-note cell-error">${escape(error)}</small>` : ''}
-    </td>`;
-  }).join('');
-  return `<tr data-skill-row="${escape(skill.name)}"${assigned.length ? '' : ' class="is-idle"'}>
-    <td class="col-name">
-      <div class="skill-line"><strong>${nameHtml(skill.name)}</strong>${tags}</div>
-      <p class="skill-desc" title="${escape(skill.description)}">${escape(skill.summary || skill.description)}</p>
-    </td>
-    ${cells}
-    <td class="col-last">${escape(lastUseLabel(skill.name).text)}</td>
-    <td class="col-num">${number(skill.description_chars)}</td>
-  </tr>`;
+  return `<div class="skill-row${pending ? ' is-pending' : ''}">
+    <div class="skill-cell">
+      <button class="skill-name" data-open="${escape(skill.name)}"><span class="t">${escape(skill.title || skill.name)}</span>${skill.title ? `<span class="skill-id">${escape(skill.name)}</span>` : ''}${flags}</button>
+      <span class="skill-sum">${escape(skill.summary || skill.description)}</span>
+      ${status}
+    </div>
+    <span class="meta num">${number(skill.description_chars)} 字</span>
+    <button class="switch${pending ? ' is-pending' : ''}" role="switch" aria-checked="${on}" style="--c:${agentColor(agent.id)}"
+      data-skill="${escape(skill.name)}" data-agent="${escape(agent.id)}"
+      aria-label="${escape(agent.name + ' 使用 ' + titleOf(skill.name))}" ${locked ? 'disabled' : ''}></button>
+  </div>`;
 }
 
-/* 分组：在用的技能多的组排在前面，还没整理的放到最后的「未分组」。
-   组内已分配的在前、没分给任何 agent 的在后；都按已应用的分配排，勾选时不会跳。 */
+/* 分组：组按这次列出的技能数排，「未分组」放最后；组内按中文名排。
+   列表按已应用的分配分“在用 / 可以加的”，开关拨了也不会跳到另一边。 */
 function groupedRows(rows) {
-  const byName = new Map(rows.map(skill => [skill.name, skill]));
-  const listed = new Set();
-  const idle = skill => ((state.saved[skill.name] || []).length ? 0 : 1);
-  const inUse = group => group.skills.filter(skill => !idle(skill)).length;
-  const groups = (state.table.groups || []).map(group => {
-    group.skills.forEach(name => listed.add(name));
-    return {name: group.name, skills: group.skills.map(name => byName.get(name)).filter(Boolean)};
-  }).sort((a, b) => inUse(b) - inUse(a));
-  groups.push({name: '未分组', skills: rows.filter(skill => !listed.has(skill.name))});
-  return groups.filter(group => group.skills.length)
-    .map(group => ({...group, skills: [...group.skills].sort((a, b) => idle(a) - idle(b))}));
-}
-
-/* 组标题行：各 agent 一栏写这一组分到了几个。搜索或筛选时各组都展开，不能收起。 */
-function groupRowHtml(group, open, forced) {
-  const inUse = group.skills.filter(skill => (state.draft[skill.name] || []).length).length;
-  const counts = tableAgents().map(agent => {
-    const count = group.skills.filter(skill => (state.draft[skill.name] || []).includes(agent.id)).length;
-    return `<td class="cell-check group-count">${count || '—'}</td>`;
-  }).join('');
-  return `<tr class="group-row" data-group-row="${escape(group.name)}">
-    <td class="col-name"><button type="button" class="group-toggle" aria-expanded="${open}" ${forced ? 'disabled' : ''}>
-      <span class="group-arrow" aria-hidden="true"></span><strong>${escape(group.name)}</strong>
-      <span class="group-meta">${group.skills.length} 个${inUse < group.skills.length ? `，${inUse} 个在用` : ''}</span>
-    </button></td>
-    ${counts}
-    <td class="col-last"></td><td class="col-num"></td>
-  </tr>`;
+  const groups = new Map();
+  for (const skill of rows) {
+    const name = groupOf(skill.name);
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(skill);
+  }
+  return [...groups].map(([name, skills]) => ({name, skills: skills.sort((a, b) => titleOf(a.name).localeCompare(titleOf(b.name), 'zh-CN'))}))
+    .sort((a, b) => (a.name === '未分组') - (b.name === '未分组') || b.skills.length - a.skills.length);
 }
 
 function renderSkillTable() {
-  const agents = tableAgents();
-  $('skills-head').innerHTML = '<th class="col-name">技能</th>'
-    + agents.map(agent => `<th class="cell-check">${escape(agent.name)}</th>`).join('')
-    + '<th class="col-last">最近使用</th><th class="col-num">说明字数</th>';
-
-  const columns = agents.length + 3;
-  if (!state.table) {
-    $('skills-rows').innerHTML = `<tr><td class="empty" colspan="${columns}">正在读取技能列表…</td></tr>`;
+  const agent = currentAgent();
+  if (!state.table || !agent) {
+    $('agent-head').innerHTML = '';
+    $('skills-tabs').innerHTML = '';
+    $('skills-list').innerHTML = '<p class="empty">正在读取技能列表…</p>';
     return;
   }
-  const rows = skillRows();
-  const total = state.table.skills.length;
-  const forced = Boolean($('skills-search').value.trim()) || state.filter !== 'all';
-  const groups = groupedRows(rows);
-  const grouped = Boolean(state.table.groups?.length);
-  const allOpen = groups.every(group => state.openGroups.has(group.name));
-  $('skills-count').textContent = forced
-    ? `找到 ${rows.length} 个，共 ${total} 个技能。点一行看详情，勾选框直接改分配。`
-    : grouped ? `共 ${total} 个技能，分成 ${groups.length} 组。点组名展开，点一行看详情，勾选框直接改分配。`
-    : `共 ${total} 个技能。点一行看详情，勾选框直接改分配。`;
-  $('labels-hint').hidden = grouped || state.table.llm_configured;
-  $('skills-expand').hidden = forced || !groups.length || !grouped;
-  $('skills-expand').textContent = allOpen ? '全部收起' : '全部展开';
-  $('skills-rows').innerHTML = (!grouped ? rows.map(skillRowHtml).join('') : groups.map(group => {
-    const open = forced || state.openGroups.has(group.name);
-    return groupRowHtml(group, open, forced) + (open ? group.skills.map(skillRowHtml).join('') : '');
-  }).join('')) || `<tr><td class="empty" colspan="${columns}">${escape(emptySkillsText())}</td></tr>`;
+  const loads = Object.fromEntries(state.agents.map(item => [item.id, agentLoad(item.id)]));
+  const load = loads[agent.id];
+  const facts = [`${load.countNow} 个技能`, agent.activation_text || ''].filter(Boolean).join(' · ');
+  $('agent-head').innerHTML = `<h2>${swatch(agent.id)}${escape(agent.name)}</h2>
+    <p>${escape(facts)}</p>
+    ${loadHtml(agent.id, load, loadMax(loads), true)}`;
+
+  const skills = state.table.skills;
+  const nOn = skills.filter(skill => assignedNow(skill.name, agent.id)).length;
+  $('skills-tabs').innerHTML = `<button class="seg" data-tab="on" aria-pressed="${state.tab === 'on'}">在用<span class="n">${nOn}</span></button>
+    <button class="seg" data-tab="off" aria-pressed="${state.tab === 'off'}">可以加的<span class="n">${skills.length - nOn}</span></button>`;
+  $('skills-search').placeholder = `在 ${agent.name} 的技能里搜`;
+
+  const query = $('skills-search').value.trim().toLowerCase();
+  const rows = skills.filter(skill => (state.tab === 'on') === assignedNow(skill.name, agent.id))
+    .filter(skill => !query || [skill.name, skill.title, skill.summary, skill.description].some(text => (text || '').toLowerCase().includes(query)));
+  const empty = query ? '没有找到这个技能，换个词试试。'
+    : state.tab === 'on' ? `${agent.name} 还没有技能。到「可以加的」里打开开关就能加上。` : '所有技能都已经给它了。';
+  $('skills-list').innerHTML = groupedRows(rows).map(group =>
+    `<div class="list-group-head"><strong>${escape(group.name)}</strong><span>${group.skills.length} 个</span></div>`
+    + group.skills.map(skill => skillRowHtml(skill, agent)).join('')).join('') || `<p class="empty">${escape(empty)}</p>`;
+  $('labels-hint').hidden = Boolean(state.table.groups?.length) || state.table.llm_configured;
   renderSkillsNote();
 }
 
-/* 页脚说明：共用目录的提醒来自接口 notes；统计不到的只写是哪几个 agent，
-   技术口径（usage_note）不往这里搬。 */
+/* 页脚说明：共用目录的提醒来自接口 notes。 */
 function renderSkillsNote() {
   const parts = [...(state.table?.notes || [])];
-  const coverage = state.usage?.coverage || {};
-  if (state.usage) {
-    const missing = state.agents.filter(agent => coverage[agent.id] && !coverage[agent.id].available);
-    if (missing.length && missing.length === state.agents.length) parts.push('各 agent 的用量都统计不到，多半是还没有使用记录。');
-    else if (missing.length) parts.push(`${missing.map(agent => agent.name).join('、')} 暂时统计不到用量。`);
-    parts.push('“最近使用”取各 agent 里最近的一次；每个 agent 各自的情况在详情里。');
-  } else {
-    parts.push('用量还在后台统计，统计完“最近使用”会自动更新。');
-  }
-  if (state.inventory?.count_basis) parts.push(state.inventory.count_basis + '“字数”按字符粗算，不代表实际模型用量。');
+  parts.push('“开场先读”是每开一次新对话，agent 要先读的技能说明字数，按字符粗算，只用来互相比较。');
   $('skills-note').textContent = parts.join(' ');
 }
 
 function pendingChanges() {
   if (!state.table) return [];
   return state.table.skills.flatMap(skill => state.agents
-    .filter(agent => (state.draft[skill.name] || []).includes(agent.id) !== skill.assigned_agents.includes(agent.id))
-    .map(agent => ({skill: skill.name, agent: agent.id, enabled: (state.draft[skill.name] || []).includes(agent.id)})));
+    .filter(agent => assignedAfter(skill.name, agent.id) !== assignedNow(skill.name, agent.id))
+    .map(agent => ({skill: skill.name, agent: agent.id, enabled: assignedAfter(skill.name, agent.id)})));
 }
 
-/* 底部操作栏：主句说清改了几处、要按「应用」才生效，副句放预览的提示和依赖说明。 */
+/* “给 Claude 加 2 个、从 Codex 撤下 1 个”。 */
+function changeSummary(changes) {
+  const parts = [];
+  for (const agent of state.agents) {
+    const added = changes.filter(c => c.agent === agent.id && c.enabled).length;
+    const removed = changes.filter(c => c.agent === agent.id && !c.enabled).length;
+    if (added) parts.push(`给 ${agent.name} 加 ${added} 个`);
+    if (removed) parts.push(`从 ${agent.name} 撤下 ${removed} 个`);
+  }
+  return parts.join('、');
+}
+
+/* 后台的说法是“将给 Claude 加 2 个”；做完以后改成过去时。 */
+function pastTense(message) {
+  return String(message || '').replace(/将给/g, '给').replace(/加 (\d+) 个/g, '加了 $1 个').replace(/撤下 (\d+) 个/g, '撤下了 $1 个');
+}
+
+/* 底部托盘：每一处改动一行，自动带上的写明原因；手动改的每处都能单独“不改这处”。 */
 function renderSkillsActionBar() {
   const changes = pendingChanges();
   if (!changes.length || !state.table) return hideActionBar();
-  const note = [
-    state.pending?.message || '',
-    autoAddedNote(),
-    ...(state.pending?.dependency_warnings || []),
-  ].filter(Boolean).join('；');
+  const items = changes.map(change => {
+    const agent = state.agents.find(item => item.id === change.agent);
+    const because = autoAddedBy(change.skill, change.agent);
+    const users = change.enabled ? [] : state.table.skills
+      .filter(skill => skill.requires.includes(change.skill) && assignedAfter(skill.name, change.agent))
+      .map(skill => `「${titleOf(skill.name)}」`);
+    const why = because ? `<small>自动带上：「${escape(titleOf(because))}」要用它</small>`
+      : users.length ? `<small class="warn">注意：${escape(users.join(''))}还要用它</small>` : '';
+    return `<li><span class="action-agent">${swatch(change.agent)}${escape(agent?.name || change.agent)}</span>
+      <p>${change.enabled ? '加上' : '<span class="verb-off">撤下</span>'}「${escape(titleOf(change.skill))}」${why}</p>
+      ${because ? '' : `<button class="btn btn-quiet btn-small" data-revert-skill="${escape(change.skill)}" data-revert-agent="${escape(change.agent)}">不改这处</button>`}</li>`;
+  }).join('');
+  const paths = state.pending?.path_warnings || [];
+  const extra = paths.length ? `<details><summary>有 ${paths.length} 份你的文件里写着这些技能现在的位置，应用后位置会变，那些文件里的说法可能要改</summary>
+      <ul>${paths.map(warning => `<li class="mono">${pathLabel(warning.file)}</li>`).join('')}</ul></details>` : '';
+  const removing = changes.some(change => !change.enabled);
   showActionBar({
-    text: `改了 ${changes.length} 处，按「应用」后才生效`,
-    note,
+    text: `改了 ${changes.length} 处，还没生效`,
+    note: changeSummary(changes) + (removing ? '。撤下的技能文件还留着，随时能加回来' : ''),
+    items,
+    extra,
     buttons: [
-      {label: '取消', kind: 'btn', action: () => discardPending()},
-      {label: '应用', kind: 'btn btn-primary', disabled: previewBusy || Boolean(writeBusy) || !state.table.write_allowed, action: button => applyAssignment(button)},
+      {label: '全部不改', kind: 'btn btn-quiet', action: () => discardPending()},
+      {label: `应用这 ${changes.length} 处`, kind: 'btn btn-primary', disabled: previewBusy || Boolean(writeBusy) || !state.table.write_allowed, action: button => applyAssignment(button)},
     ],
   });
 }
 
-/* 勾选：先改草稿并立刻重画（不等网络），再合并着发预览请求。
-   每次勾选都会让在途的预览结果作废，所以旧结果永远不会盖掉新的勾选；
-   100 毫秒内的连续勾选还会合并成一次请求。 */
+/* 拨开关：先改草稿并立刻重画（不等网络），再合并着发预览请求。
+   每次拨动都会让在途的预览结果作废，所以旧结果永远不会盖掉新的改动；
+   100 毫秒内的连续拨动还会合并成一次请求。 */
 function invalidatePreview() {
   return ++previewSequence;
 }
@@ -751,8 +764,15 @@ function schedulePreview() {
   previewTimer = setTimeout(runPreview, PREVIEW_DEBOUNCE_MS);
 }
 
+function renderAssignmentViews() {
+  renderSkillTable();
+  renderAgentSummary();
+  renderSkillsActionBar();
+  if (state.detail) renderDetail();
+}
+
 async function runPreview() {
-  // 这次请求认领当前的序号；期间只要有人再勾选，序号就会变，结果直接作废。
+  // 这次请求认领当前的序号；期间只要有人再拨，序号就会变，结果直接作废。
   const sequence = previewSequence;
   previewBusy = true;
   renderSkillsActionBar();
@@ -769,15 +789,13 @@ async function runPreview() {
       const assigned = new Set(state.draft[clicked.skill] || []);
       if (clicked.enabled) assigned.delete(clicked.agent); else assigned.add(clicked.agent);
       state.draft[clicked.skill] = [...assigned];
-      assignmentErrors[clicked.skill + '|' + clicked.agent] = '这次勾选没改成：' + error.message;
+      assignmentErrors[clicked.skill + '|' + clicked.agent] = '这次没改成：' + error.message;
     }
     toast({text: error.message, tone: 'error'});
   } finally {
     // 只有最新那次请求负责收起忙碌态；被作废的旧请求什么都不动。
     if (sequence === previewSequence) previewBusy = false;
-    renderSkillTable();
-    renderAgentSummary();
-    renderSkillsActionBar();
+    renderAssignmentViews();
   }
 }
 
@@ -790,19 +808,54 @@ function discardPending() {
   state.pendingClick = null;
   state.autoAdded = new Map();
   assignmentErrors = {};
-  renderSkillTable();
-  renderAgentSummary();
-  renderSkillsActionBar();
+  renderAssignmentViews();
 }
 
-/* 分配确认：按 agent 列出具体技能名，依赖自动带上的单独标注。 */
+function setDraft(name, agentId, enabled) {
+  const selected = new Set(state.draft[name] || []);
+  if (enabled) selected.add(agentId); else selected.delete(agentId);
+  state.draft[name] = [...selected];
+  delete assignmentErrors[name + '|' + agentId];
+}
+
+/* 关掉一个技能时，它自动带上的技能也一起退回原样，不留孤零零的依赖。 */
+function revertAutos(name, agentId) {
+  for (const [key, because] of [...state.autoAdded]) {
+    const [skill, owner] = key.split('|');
+    if (because !== name || owner !== agentId) continue;
+    state.autoAdded.delete(key);
+    setDraft(skill, owner, assignedNow(skill, owner));
+    revertAutos(skill, owner);
+  }
+}
+
+function changeAssignment(name, agentId, enabled) {
+  if (writeBusy || !state.table?.write_allowed) return;
+  const active = document.activeElement;
+  const refocus = active?.dataset?.skill === name && active?.dataset?.agent === agentId
+    ? (active.closest('#detail-body') ? '#detail-body' : '#skills-list') : null;
+  setDraft(name, agentId, enabled);
+  if (!enabled) revertAutos(name, agentId);
+  if (!pendingChanges().length) {
+    discardPending();
+  } else {
+    // 先作废在途的预览结果，再记下这一次；这样第二次拨动不会被第一个请求的返回盖掉。
+    const sequence = invalidatePreview();
+    state.pendingClick = {skill: name, agent: agentId, enabled, sequence};
+    renderAssignmentViews();
+    schedulePreview();
+  }
+  if (refocus) document.querySelector(`${refocus} [data-skill="${CSS.escape(name)}"][data-agent="${CSS.escape(agentId)}"]`)?.focus();
+}
+
+const toggleAssignment = (name, agentId) => changeAssignment(name, agentId, !assignedAfter(name, agentId));
+const revertChange = (name, agentId) => changeAssignment(name, agentId, assignedNow(name, agentId));
+
+/* 分配确认：按 agent 列出具体技能名。只有撤下才多问一句，加技能直接应用、事后可撤销。 */
 function assignmentGroups(changes) {
   const groups = [];
-  for (const agent of tableAgents()) {
-    const added = changes.filter(c => c.agent === agent.id && c.enabled)
-      .map(c => ({name: c.skill, note: autoAddedBy(c.skill, agent.id) ? '因依赖自动加上' : ''}));
+  for (const agent of state.agents) {
     const removed = changes.filter(c => c.agent === agent.id && !c.enabled).map(c => ({name: c.skill}));
-    if (added.length) groups.push({label: `给 ${agent.name} 加上 ${added.length} 个`, items: added});
     if (removed.length) groups.push({label: `从 ${agent.name} 撤下 ${removed.length} 个`, items: removed});
   }
   return groups;
@@ -812,15 +865,20 @@ async function applyAssignment(button) {
   const plan = state.pending;
   if (!plan) return;
   const changes = pendingChanges();
-  const warnings = [...(plan.dependency_warnings || []), ...(plan.path_warnings || []).map(w => '受影响的文件：' + w.file)];
-  const ok = await confirmDialog({
-    title: '应用这些分配改动',
-    lines: [plan.message, ...warnings],
-    groups: assignmentGroups(changes),
-    note: '完成后可以在操作记录里撤销。',
-    okText: '应用',
-  });
-  if (!ok) return;
+  const removed = changes.filter(change => !change.enabled);
+  if (removed.length) {
+    const warnings = removed.flatMap(change => state.table.skills
+      .filter(skill => skill.requires.includes(change.skill) && assignedAfter(skill.name, change.agent))
+      .map(skill => `${nameOf(change.agent)} 的「${titleOf(skill.name)}」还要用「${titleOf(change.skill)}」，撤下后它可能用不了。`));
+    const ok = await confirmDialog({
+      title: '撤下这些技能',
+      lines: [`${changeSummary(removed)}。技能文件还留着，随时能加回来。`, ...warnings],
+      groups: assignmentGroups(removed),
+      note: '应用后也能在提示条或操作记录里撤销。',
+      okText: '撤下',
+    });
+    if (!ok) return;
+  }
   await runWrite({
     button,
     busyText: '正在应用…',
@@ -831,64 +889,51 @@ async function applyAssignment(button) {
       return result;
     },
     success: result => ({
-      text: '分配已经应用',
-      undo: undoButton => undoOperation(result.id, {skills: plan.changed || [], message: result.message, button: undoButton}),
+      text: pastTense(result.message || changeSummary(changes)),
+      undo: undoButton => undoOperation(result.id, {skills: plan.changed || [], message: pastTense(result.message), button: undoButton}),
     }),
   });
 }
 
-/* 勾选立刻生效在草稿上，任何时候都不锁、不等；预览在后台跟上。 */
-$('skills-rows').addEventListener('change', event => {
-  const input = event.target.closest('input[data-skill]');
-  if (!input || writeBusy || !state.table?.write_allowed) return;
-  const name = input.dataset.skill;
-  const agent = input.dataset.agent;
-  const selected = new Set(state.draft[name] || []);
-  if (input.checked) selected.add(agent); else selected.delete(agent);
-  state.draft[name] = [...selected];
-  delete assignmentErrors[name + '|' + agent];
-  // 先作废在途的预览结果，再记下这一次勾选；这样第二个勾不会被第一个请求的返回盖掉。
-  const sequence = invalidatePreview();
-  state.pendingClick = {skill: name, agent, enabled: input.checked, sequence};
-  renderSkillTable();
-  renderAgentSummary();
-  renderSkillsActionBar();
-  schedulePreview();
+$('skills-list').addEventListener('click', event => {
+  const toggle = event.target.closest('button[data-skill][data-agent]');
+  if (toggle) { toggleAssignment(toggle.dataset.skill, toggle.dataset.agent); return; }
+  const open = event.target.closest('[data-open]');
+  if (open) openDetail(open.dataset.open);
 });
 
-$('skills-rows').addEventListener('click', event => {
-  const group = event.target.closest('[data-group-row]');
-  if (group) {
-    if (group.querySelector('.group-toggle').disabled) return;
-    const name = group.dataset.groupRow;
-    if (state.openGroups.has(name)) state.openGroups.delete(name); else state.openGroups.add(name);
-    renderSkillTable();
-    return;
-  }
-  if (event.target.closest('input, button, select, label')) return;
-  const row = event.target.closest('[data-skill-row]');
-  if (row) openDetail(row.dataset.skillRow);
+$('agent-rail').addEventListener('click', event => {
+  const button = event.target.closest('[data-pick-agent]');
+  if (button) pickAgent(button.dataset.pickAgent);
+});
+
+$('skills-tabs').addEventListener('click', event => {
+  const button = event.target.closest('[data-tab]');
+  if (!button) return;
+  state.tab = button.dataset.tab;
+  renderSkillTable();
+});
+
+$('page-skills').addEventListener('click', event => {
+  const target = event.target.closest('[data-goto], [data-check-updates]');
+  if (!target) return;
+  if (target.dataset.goto) { showPage(target.dataset.goto); return; }
+  showPage('updates');
+  $('updates-check').click();
+});
+
+$('action-list').addEventListener('click', event => {
+  const revert = event.target.closest('[data-revert-skill]');
+  if (revert) { revertChange(revert.dataset.revertSkill, revert.dataset.revertAgent); return; }
+  const unpick = event.target.closest('[data-cleanup-unpick]');
+  if (unpick) { state.cleanupSelected.delete(unpick.dataset.cleanupUnpick); renderCleanup(); }
 });
 
 $('skills-search').addEventListener('input', renderSkillTable);
-$('skills-expand').addEventListener('click', () => {
-  const names = groupedRows(skillRows()).map(group => group.name);
-  const allOpen = names.every(name => state.openGroups.has(name));
-  state.openGroups = allOpen ? new Set() : new Set(names);
-  renderSkillTable();
-});
-$('skills-filters').addEventListener('click', event => {
-  const button = event.target.closest('.seg');
-  if (!button) return;
-  state.filter = button.dataset.filter;
-  for (const seg of document.querySelectorAll('.seg')) seg.setAttribute('aria-pressed', String(seg === button));
-  renderSkillTable();
-});
 
 $('skills-refresh').addEventListener('click', event => withBusy(event.currentTarget, '正在盘点…', async () => {
   await refreshInventory();
   await refreshTable();
-  renderSkillTable();
 }));
 
 /* 新技能横幅：发现没收进仓库的，先在这里提醒。 */
@@ -896,22 +941,10 @@ function renderNewSkills() {
   const list = state.table?.new_skills || [];
   $('new-banner').hidden = !list.length;
   if (!list.length) return;
-  $('new-text').textContent = `发现 ${list.length} 个新技能还没收进仓库`;
+  $('new-text').textContent = `发现 ${list.length} 个新装的技能，还没交给 Skill Pilot 管`;
   $('new-list').innerHTML = list.map(s => `<p>${escape(s.name)} <span class="mono muted">${pathLabel(s.relative)}</span></p>`).join('');
 }
 
-/* 新 agent 横幅：接口发现还没接入的 agent 时，指路到设置里的 agent 一栏。
-   只看 suggested：已经忽略的不再提醒。 */
-function renderAgentBanner() {
-  // 只看 suggested，而且只说还没被忽略的那些（ignored 现在可能是对象，也可能还是编号）。
-  const ignored = new Set((state.agentsView?.ignored || [])
-    .map(item => (item && typeof item === 'object') ? item.id : item));
-  const list = (state.agentsView?.suggested || []).filter(item => !ignored.has(item.id));
-  $('agent-banner').hidden = !list.length;
-  $('agent-text').textContent = list.length ? `发现新 agent：${list.map(item => item.name).join('、')}` : '';
-}
-
-$('agent-look').addEventListener('click', () => showPage('settings'));
 
 $('new-toggle').addEventListener('click', event => {
   const list = $('new-list');
@@ -967,6 +1000,7 @@ async function refreshTable(preserveDraft = false) {
   const draft = state.draft, pending = state.pending;
   state.table = table;
   state.skillIndex = new Map(table.skills.map(s => [s.name, s]));
+  state.groupIndex = new Map((table.groups || []).flatMap(group => group.skills.map(name => [name, group.name])));
   state.saved = Object.fromEntries(table.skills.map(s => [s.name, [...s.assigned_agents]]));
   state.draft = clone(state.saved);
   state.pending = null;
@@ -976,10 +1010,11 @@ async function refreshTable(preserveDraft = false) {
   $('mode-badge').textContent = table.write_allowed ? '可以管理技能' : '只读预览';
   $('skills-install').disabled = !table.write_allowed;
   renderNewSkills();
-  renderAgentBanner();
+  renderRailNotes();
   renderAgentSummary();
   renderSkillTable();
   if (state.detail) renderDetail();
+  renderCleanup();
   renderActionBar();
   renderLabelCounts();
   if (table.write_allowed && table.llm_configured && table.labels_pending > 0 && !labelsAutoAttempted && !labelsRunning) {
@@ -991,7 +1026,7 @@ async function refreshTable(preserveDraft = false) {
 /* agent 目录与接入建议。页面里翻名字、设置页那一栏、新 agent 横幅都看它。 */
 async function refreshAgents() {
   indexCatalog(await api('/api/agents'));
-  renderAgentBanner();
+  renderRailNotes();
   renderAgents();
 }
 
@@ -1158,7 +1193,7 @@ async function refreshEverything() {
   // /api/agents 比较慢（要重新盘点一遍），放在最后只等前三个：
   // 写操作的完成提示不用陪它等，agent 那一栏结果回来自己会重画。
   await Promise.all([refreshTable(), refreshInventory()]);
-  await refreshLog();
+  await Promise.all([refreshLog(), loadCleanup()]);
   refreshAgents().catch(error => toast({text: error.message, tone: 'error', sticky: true}));
 }
 
@@ -1181,16 +1216,14 @@ function renderAgents() {
     const shared = (agent.shared_with || []).map(agentName);
     const info = [
       agent.activation_text || '',
-      agent.usage_available ? '能统计用量' : (agent.usage_note || '统计不到用量'),
-      shared.length ? `和 ${shared.join('、')} 共用技能目录` : '',
-    ].filter(Boolean).join('；');
+      shared.length ? `和 ${shared.join('、')} 共用一个技能文件夹` : '',
+    ].filter(Boolean).join(' · ');
     const leave = agent.can_leave
-      ? `<button class="btn btn-small" data-agent-leave="${escape(agent.id)}">不再管理</button>`
+      ? `<button class="btn btn-small btn-quiet" data-agent-leave="${escape(agent.id)}">不再管理…</button>`
       : '<span class="item-note">至少要留一个</span>';
     return `<div class="item-row">
       <div>
-        <div class="item-title">${escape(agent.name)}</div>
-        <div class="item-note">${rootsLabel(agent.skill_roots)}</div>
+        <div class="item-title">${swatch(agent.id)} ${escape(agent.name)}</div>
         <div class="item-note">${escape(info)}</div>
       </div>
       <span class="item-end">${leave}</span>
@@ -1200,7 +1233,7 @@ function renderAgents() {
   const row = (agent, action) => `<div class="item-row">
     <div>
       <div class="item-title">${escape(agent.name)}${agent.ignored ? ' <span class="tag tag-quiet">已忽略</span>' : ''}</div>
-      <div class="item-note">${rootsLabel(agent.skill_roots)}${agent.skill_count === undefined ? '' : ` · ${number(agent.skill_count)} 个技能`}</div>
+      <div class="item-note">在 ${rootsLabel(agent.skill_roots)} 里${agent.skill_count === undefined ? '' : `找到 ${number(agent.skill_count)} 个技能`}</div>
       <div class="item-note">${escape(agent.reason || '')}</div>
     </div>
     <span class="item-end">${action}</span>
@@ -1403,18 +1436,35 @@ function renderDetail() {
   const skill = state.table?.skills.find(s => s.name === state.detail);
   if (!skill) { closeDetail(); return; }
   $('detail-title').textContent = skill.title || skill.name;
-  const usage = state.usageIndex.get(skill.name);
-  const coverage = state.usage?.coverage || {};
+  const locked = Boolean(writeBusy) || !state.table.write_allowed;
+  const disabledFor = new Set(state.agents.filter(agent => (state.inventory?.disabled?.[agent.id]?.names || []).includes(skill.name)).map(agent => agent.id));
 
-  const usageRows = state.agents.map(agent => {
-    const available = state.usage ? coverage[agent.id]?.available : null;
-    const last = !state.usage ? '还没统计' : available ? (usage?.last_used?.[agent.id] || '没有使用记录') : '统计不到';
-    const count = !state.usage || !available ? '—' : number(usage?.sessions_30d?.[agent.id] || 0);
-    return `<tr><th>${escape(agent.name)}</th><td>${escape(last)}</td><td class="num">${escape(count)}</td>
-      <td>${(state.draft[skill.name] || []).includes(agent.id) ? '已分配' : '没分配'}</td></tr>`;
+  const who = state.agents.map(agent => {
+    const on = assignedAfter(skill.name, agent.id);
+    const pending = on !== assignedNow(skill.name, agent.id);
+    let text;
+    if (pending) text = pendingNote(skill.name, agent.id);
+    else if (!on) text = cellNote(skill, agent) || (disabledFor.has(agent.id) ? `${agent.name} 里停用了` : '没用');
+    else text = '在用';
+    return `<div class="who-row${pending ? ' is-pending' : ''}">
+      <span class="who-name">${swatch(agent.id)}${escape(agent.name)}</span>
+      <p${pending ? ' class="is-pending"' : ''}>${escape(text)}</p>
+      <button class="switch${pending ? ' is-pending' : ''}" role="switch" aria-checked="${on}" style="--c:${agentColor(agent.id)}"
+        data-skill="${escape(skill.name)}" data-agent="${escape(agent.id)}"
+        aria-label="${escape(agent.name + ' 使用 ' + titleOf(skill.name))}" ${locked ? 'disabled' : ''}></button>
+    </div>`;
   }).join('');
 
-  const disabledFor = state.agents.filter(agent => (state.inventory?.disabled?.[agent.id]?.names || []).includes(skill.name));
+  const requires = skill.requires.map(name => `<span class="chip"><button data-open="${escape(name)}">${escape(titleOf(name))}</button>
+      <button class="chip-x" data-dep-remove="${escape(skill.name)}" data-dep-name="${escape(name)}"
+        aria-label="${escape('不再一起带上 ' + titleOf(name))}" ${locked ? 'disabled' : ''}>移除</button></span>`).join('');
+  const requiredBy = (state.table?.skills || []).filter(s => s.requires.includes(skill.name))
+    .map(s => `<span class="chip chip-solo"><button data-open="${escape(s.name)}">${escape(titleOf(s.name))}</button></span>`).join('');
+  const options = (state.table?.skills || [])
+    .filter(s => s.name !== skill.name && !skill.requires.includes(s.name))
+    .sort((a, b) => titleOf(a.name).localeCompare(titleOf(b.name), 'zh-CN'))
+    .map(s => `<option value="${escape(s.name)}">${escape(s.title ? `${s.title}（${s.name}）` : s.name)}</option>`).join('');
+
   const entries = entriesFor(skill.name).map(({root, skill: entry}) => {
     const manual = (entry.manual_only_for || []).map(agentName);
     const status = [
@@ -1425,74 +1475,76 @@ function renderDetail() {
       entry.name_mismatch ? '名称与文件夹名称不同' : '',
       entry.warning || '',
     ].filter(Boolean).join(' · ');
-    return `<li>
-      <p class="entry-path">${pathLabel(entry.path)}</p>
-      <p class="entry-status">${escape(status)}</p>
-    </li>`;
+    return `<li><p class="entry-path">${pathLabel(entry.path)}</p><p class="entry-status">${escape(status)}</p></li>`;
   }).join('');
-
-  const options = (state.table?.skills || [])
-    .filter(s => s.name !== skill.name && !skill.requires.includes(s.name))
-    .map(s => `<option value="${escape(s.name)}">${escape(s.title ? `${s.title}（${s.name}）` : s.name)}</option>`).join('');
 
   $('detail-body').innerHTML = `
     ${skill.title ? `<p class="detail-id">${escape(skill.name)}</p>` : ''}
-    <div class="detail-tags">
-      ${skill.local_modified ? '<span class="tag tag-warn">你改过</span>' : '<span class="tag tag-quiet">和刚装进来时一样</span>'}
-      ${skill.source_label ? `<span class="tag tag-quiet">${escape(skill.source_label)}</span>` : ''}
-      ${disabledFor.length ? `<span class="tag tag-warn">${escape(disabledFor.map(agent => agent.name).join('、'))} 里停用了</span>` : ''}
-    </div>
-    ${skill.summary ? `<p class="detail-summary">${escape(skill.summary)}</p>
-    <h3 class="sub-title">原文说明</h3>
-    <p class="item-note">agent 看到的是这段原文，“说明字数”也按它算。</p>` : ''}
+    ${skill.summary ? `<p class="detail-summary">${escape(skill.summary)}</p>` : ''}
+
+    <h3 class="sub-title">谁在用</h3>
+    <div class="who">${who}</div>
+
+    <h3 class="sub-title">会一起带上</h3>
+    ${requires ? `<div class="chips">${requires}</div>
+      <p class="item-note">给某个 agent 加上它时，这些技能会自动一起加上。</p>` : '<p class="item-note">它不需要别的技能。</p>'}
+    <details class="fold fold-inner">
+      <summary>加一个要一起带上的技能</summary>
+      <p class="row-wrap">
+        <select id="dep-select" class="input" aria-label="选择要一起带上的技能"><option value="">选一个技能…</option>${options}</select>
+        <button class="btn btn-small" id="dep-add" data-dep-add="${escape(skill.name)}" disabled>加上</button>
+      </p>
+      <p class="item-note">加上后，用「${escape(titleOf(skill.name))}」的 agent 会自动一起分到它。可以撤销。</p>
+    </details>
+    ${requiredBy ? `<h3 class="sub-title">谁要用它</h3><div class="chips">${requiredBy}</div>` : ''}
+
+    <h3 class="sub-title">agent 实际读到的说明 <span class="sub-note">· ${number(skill.description_chars)} 字，每次开对话都要先读一遍</span></h3>
     <p class="detail-desc">${escape(skill.description)}</p>
+
+    <h3 class="sub-title">其他</h3>
     <dl class="detail-list">
-      <dt>来源</dt><dd>${escape(skill.source_label || '没记录')}</dd>
-      <dt>存放位置</dt><dd class="mono">${pathLabel(homePath() + '/.skill-pilot/store/' + skill.name)}</dd>
-      <dt>说明字数</dt><dd>${number(skill.description_chars)} 字</dd>
-      <dt>本机改动</dt><dd>${skill.local_modified ? '你改过这份技能，更新时会问你要哪一份' : '没有改过'}</dd>
+      <dt>从哪来</dt><dd>${escape(skill.source_label || '没记录')}</dd>
+      <dt>改过没有</dt><dd>${skill.local_modified ? '你在这台电脑上改过，更新时会问你要哪一份' : '和装进来时一样'}</dd>
+      <dt>分组</dt><dd>${escape(groupOf(skill.name))}</dd>
     </dl>
 
-    <h3 class="sub-title">各 agent 使用情况</h3>
-    <table class="detail-table">
-      <thead><tr><th>agent</th><th>最近使用</th><th class="num">近 30 天</th><th>分配</th></tr></thead>
-      <tbody>${usageRows}</tbody>
-    </table>
-    ${state.usage ? '' : '<p class="item-note">用量还没统计，暂时看不到使用情况。</p>'}
-
-    <h3 class="sub-title">各 agent 里的入口</h3>
-    ${entries ? `<ul class="entry-list">${entries}</ul>` : '<p class="item-note">没找到这个技能在 agent 目录里的入口。</p>'}
-
-    <h3 class="sub-title">需要的技能</h3>
-    <ul class="dep-list">
-      ${skill.requires.map(name => `<li><span>${nameHtml(name)}</span>
-        <button class="btn btn-small" data-dep-remove="${escape(skill.name)}" data-dep-name="${escape(name)}">删除</button></li>`).join('')
-        || '<li><span class="item-note">暂时不需要别的技能。</span></li>'}
-    </ul>
-    <p class="row-wrap">
-      <select id="dep-select" class="input" aria-label="选择要添加的技能">${options}</select>
-      <button class="btn btn-small" id="dep-add" data-dep-add="${escape(skill.name)}">添加需要的技能</button>
-    </p>
-    <p class="item-note">添加时会把被需要的技能一起分配给用它的 agent；删除关系时保留现有分配。</p>`;
+    <details class="fold fold-inner">
+      <summary>技术细节（排查问题时用）</summary>
+      <dl class="detail-list">
+        <dt>存放位置</dt><dd class="mono">${pathLabel(homePath() + '/.skill-pilot/store/' + skill.name)}</dd>
+      </dl>
+      ${entries ? `<ul class="entry-list">${entries}</ul>` : '<p class="item-note">没找到这个技能在 agent 文件夹里的入口。</p>'}
+    </details>`;
 }
 
+let detailOpener = null;
+
 function openDetail(name) {
+  if (state.detail !== name || $('detail-panel').hidden) detailOpener = document.activeElement?.closest('#skills-list') ? document.activeElement : null;
   state.detail = name;
   renderDetail();
   const panel = $('detail-panel');
   panel.hidden = false;
   $('panel-scrim').hidden = false;
+  $('detail-body').scrollTop = 0;
   requestAnimationFrame(() => panel.classList.add('is-open'));
+  $('detail-close').focus();
 }
 
 function closeDetail() {
   const panel = $('detail-panel');
   panel.classList.remove('is-open');
+  state.detail = null;
   setTimeout(() => {
+    if (state.detail) return;
     panel.hidden = true;
     $('panel-scrim').hidden = true;
-    state.detail = null;
   }, 200);
+  // 列表可能已经重画过：按技能名找回打开详情的那一行，把焦点还给它。
+  const opener = detailOpener?.isConnected ? detailOpener
+    : detailOpener?.dataset?.open ? $('skills-list').querySelector(`[data-open="${CSS.escape(detailOpener.dataset.open)}"]`) : null;
+  opener?.focus();
+  detailOpener = null;
 }
 
 $('detail-close').addEventListener('click', closeDetail);
@@ -1502,28 +1554,32 @@ document.addEventListener('keydown', event => {
   if (!$('detail-panel').hidden) closeDetail();
 });
 
+$('detail-body').addEventListener('change', event => {
+  if (event.target.id === 'dep-select') $('dep-add').disabled = !event.target.value || Boolean(writeBusy);
+});
+
 $('detail-body').addEventListener('click', async event => {
   const button = event.target.closest('button');
   if (!button) return;
+  if (button.dataset.skill && button.dataset.agent) { toggleAssignment(button.dataset.skill, button.dataset.agent); return; }
+  if (button.dataset.open) { openDetail(button.dataset.open); return; }
   const addName = button.dataset.depAdd;
   const removeName = button.dataset.depRemove;
   if (addName) {
     const requires = $('dep-select')?.value;
     if (!requires) return;
     const ok = await confirmDialog({
-      title: '添加需要的技能',
-      lines: [`${titleOf(addName)} 需要 ${titleOf(requires)}。需要它的 agent 会一起分到这个技能。`],
-      groups: [{label: '这次会动到', items: [{name: addName}, {name: requires}]}],
-      note: '可以撤销。', okText: '添加',
+      title: '加一个要一起带上的技能',
+      lines: [`以后给 agent 加上「${titleOf(addName)}」时，会自动一起加上「${titleOf(requires)}」。现在用着「${titleOf(addName)}」的 agent 也会一起分到它。`],
+      note: '可以撤销。', okText: '加上',
     });
     if (!ok) return;
     await decideDependency(addName, requires, true, button);
   } else if (removeName) {
     const ok = await confirmDialog({
-      title: '删除这条依赖',
-      lines: [`不再认为 ${titleOf(removeName)} 需要 ${titleOf(button.dataset.depName)}。现有的分配保持不变。`],
-      groups: [{label: '这次会动到', items: [{name: removeName}, {name: button.dataset.depName}]}],
-      note: '可以撤销。', okText: '删除',
+      title: '不再一起带上',
+      lines: [`以后给 agent 加上「${titleOf(removeName)}」时，不再自动带上「${titleOf(button.dataset.depName)}」。现在的分配保持不变。`],
+      note: '可以撤销。', okText: '移除',
     });
     if (!ok) return;
     await decideDependency(removeName, button.dataset.depName, false, button);
@@ -1539,7 +1595,7 @@ async function decideDependency(skill, requires, confirmed, button) {
       await refreshEverything();
       return true;
     },
-    success: () => ({text: confirmed ? '已经加上需要的技能' : '已经删掉这条依赖'}),
+    success: () => ({text: confirmed ? '以后会一起带上这个技能' : '以后不再一起带上它'}),
   });
 }
 
@@ -1676,6 +1732,7 @@ function renderUpdates(review) {
     $('updates-summary').textContent = '还没有检查过。按下上面的按钮开始，检查不会改动任何文件。';
     $('updates-other-box').hidden = true;
     renderUpdatesActionBar();
+    renderRailNotes();
     return;
   }
   if (review.id !== updateState.review?.id) {
@@ -1739,6 +1796,7 @@ function renderUpdates(review) {
 
   $('updates-check').disabled = review.running || updateState.busy || Boolean(writeBusy);
   renderUpdatesActionBar();
+  renderRailNotes();
 }
 
 /* “让 Codex 解释 / 交给 Codex 合并”这两件事实际是交给 Codex 这个工具做的，
@@ -1994,145 +2052,114 @@ $('withdrawn-check').addEventListener('click', () => {
 });
 setInterval(() => { if (updateState.review?.running && !updateState.busy) refreshUpdates(); }, 1200);
 
-/* ==================== 清理页 ==================== */
+/* ==================== 清理页：自己挑要从所有 agent 撤下的技能 ==================== */
 
-function lastUseText(row) {
-  if (!row.last_used_at) return '没有使用记录';
-  const days = daysSince(row.last_used_at);
-  return days === null ? '没有使用记录' : days <= 0 ? '今天用过' : `${days} 天前`;
-}
-
-/* 覆盖说明：只列这次统计里出现的 agent，顺序按表里的顺序。 */
-function coverageText(coverage) {
-  const ids = [...state.agents.map(agent => agent.id), ...Object.keys(coverage)]
-    .filter((id, index, list) => coverage[id] && list.indexOf(id) === index);
-  return ids.map(id => `${agentName(id)}：${coverage[id].message}`).join('\n');
-}
-
-/* 可省字数：按表里的 agent 顺序列出这次统计到的每个 agent。 */
-function renderCleanupSavings(view) {
-  if (!view.candidates.length) return '';
-  const done = new Set();
-  const ids = [...state.agents.map(agent => agent.id), ...Object.keys(view.coverage || {})]
-    .filter(id => view.coverage?.[id] && !done.has(id) && done.add(id));
-  return ids.map(id => `<span class="saving">${escape(agentName(id))}：可省 ${number(view.savings?.[id] || 0)} 字说明</span>`).join('');
+/* 能撤下的：至少给了一个 agent 的技能，开场字数多的排前面，可以按名字或用途搜。 */
+function cleanupRows() {
+  const query = $('cleanup-search').value.trim().toLowerCase();
+  return (state.table?.skills || [])
+    .filter(skill => (state.saved[skill.name] || []).length)
+    .filter(skill => !query || [skill.name, skill.title, skill.summary, skill.description].some(text => (text || '').toLowerCase().includes(query)))
+    .sort((a, b) => b.description_chars - a.description_chars || titleOf(a.name).localeCompare(titleOf(b.name), 'zh-CN'));
 }
 
 function renderCleanup() {
-  const view = state.cleanup;
   if (state.page !== 'cleanup') return;
-  if (!view) {
-    $('cleanup-savings').innerHTML = '';
-    $('cleanup-rows').innerHTML = '<tr><td class="empty" colspan="5">正在生成清理名单…</td></tr>';
-    $('withdrawn-list').innerHTML = '<p class="item-note">正在读取…</p>';
-    renderCleanupActionBar();
-    return;
+  const locked = Boolean(writeBusy) || !state.table?.write_allowed;
+  // 已经不再分给任何 agent 的（比如刚在技能页撤掉了）不算选中。
+  for (const name of [...state.cleanupSelected]) {
+    if (!(state.saved[name] || []).length) state.cleanupSelected.delete(name);
   }
-  $('cleanup-savings').innerHTML = renderCleanupSavings(view);
+  const searching = Boolean($('cleanup-search').value.trim());
+  $('cleanup-rows').innerHTML = !state.table ? '<tr><td class="empty" colspan="4">正在读取技能列表…</td></tr>'
+    : cleanupRows().map(skill => `<tr>
+      <td class="col-check"><label class="check-hit"><input type="checkbox" data-cleanup="${escape(skill.name)}"
+        aria-label="${escape('撤下 ' + titleOf(skill.name))}" ${state.cleanupSelected.has(skill.name) ? 'checked' : ''} ${locked ? 'disabled' : ''}></label></td>
+      <td><strong>${nameHtml(skill.name)}</strong>${skill.summary ? `<p class="skill-desc">${escape(skill.summary)}</p>` : ''}</td>
+      <td>${(state.saved[skill.name] || []).map(id => `<span class="agent-tag">${swatch(id)}${escape(agentName(id))}</span>`).join('')}</td>
+      <td class="col-num">${number(skill.description_chars)} 字</td>
+    </tr>`).join('') || `<tr><td class="empty" colspan="4">${searching ? '没有找到这个技能，换个词试试。' : '现在没有分给任何 agent 的技能。'}</td></tr>`;
 
-  $('cleanup-rows').innerHTML = view.candidates.map(row => `<tr>
-    <td class="col-check"><label class="check-hit"><input type="checkbox" data-cleanup="${escape(row.name)}"
-      aria-label="${escape('清理 ' + row.name)}" ${state.cleanupSelected.has(row.name) ? 'checked' : ''} ${view.write_allowed && !writeBusy ? '' : 'disabled'}></label></td>
-    <td><strong>${nameHtml(row.name)}</strong></td>
-    <td>${escape((row.assigned_agents || []).map(id => agentName(id)).join('、') || '没分配')}</td>
-    <td class="col-last">${escape(lastUseText(row))}</td>
-    <td class="col-num">${number(row.description_chars)}</td>
-  </tr>`).join('') || '<tr><td class="empty" colspan="5">没有需要清理的技能。60 天内都用过。</td></tr>';
-
-  $('cleanup-status').textContent = view.checked_at
-    ? `名单生成于 ${new Date(view.checked_at).toLocaleString('zh-CN')}，共 ${view.candidates.length} 个候选。` + (view.excluded?.length ? `另有 ${view.excluded.length} 个暂时不动。` : '')
-    : '';
-  $('cleanup-status').title = coverageText(view.coverage || {});
-
-  $('withdrawn-list').innerHTML = view.withdrawn.map(row => `<div class="item-row">
+  const view = state.cleanup;
+  $('withdrawn-list').innerHTML = !view ? '<p class="item-note">正在读取…</p>' : view.withdrawn.map(row => `<div class="item-row">
     <div>
       <div class="item-title">${nameHtml(row.name)}</div>
-      <div class="item-note">原来分配给 ${escape((row.previous_agents || []).map(id => agentName(id)).join('、') || '没有记录')}${row.withdrawn_at ? ' · ' + escape(new Date(row.withdrawn_at).toLocaleDateString('zh-CN')) : ''}</div>
+      <div class="item-note">原来给 ${escape((row.previous_agents || []).map(id => agentName(id)).join('、') || '没有记录')} 用${row.withdrawn_at ? ' · ' + escape(friendlyDate(row.withdrawn_at)) + '撤下' : ''}</div>
     </div>
-    <span class="item-end"><button class="btn btn-small" data-restore-withdrawn="${escape(row.name)}" ${view.write_allowed && !writeBusy ? '' : 'disabled'}>恢复原分配</button></span>
-  </div>`).join('') || '<p class="empty">还没有已撤下的技能。</p>';
+    <span class="item-end"><button class="btn btn-small" data-restore-withdrawn="${escape(row.name)}" ${view.write_allowed && !writeBusy ? '' : 'disabled'}>恢复…</button></span>
+  </div>`).join('') || '<p class="empty">还没有撤下过技能。</p>';
   renderCleanupActionBar();
 }
 
+/* 底部托盘：选了哪些、各 agent 开场能少读多少字；每个都能单独“不撤这个”。 */
 function renderCleanupActionBar() {
   if (state.page !== 'cleanup') return;
-  const view = state.cleanup;
-  if (!view || !view.candidates.length) return hideActionBar();
-  const count = state.cleanupSelected.size;
-  const keep = view.candidates.length - count;
+  const names = [...state.cleanupSelected];
+  if (!names.length) return hideActionBar();
+  const savings = state.agents.map(agent => {
+    const chars = names.filter(name => (state.saved[name] || []).includes(agent.id))
+      .reduce((sum, name) => sum + (state.skillIndex.get(name)?.description_chars || 0), 0);
+    return chars ? `${agent.name} 开场少读 ${number(chars)} 字` : '';
+  }).filter(Boolean);
   showActionBar({
-    text: count ? `将从所有 agent 撤下 ${count} 个技能` : '这次不撤下任何技能',
-    note: keep ? `取消勾选的 ${keep} 个会记为今天留下。清理只从 agent 撤下，文件留在仓库，可以在操作记录里撤销。`
-               : '文件留在仓库，可以在操作记录里撤销。',
-    buttons: [{
-      label: count ? `清理选中的 ${count} 个` : '清理选中的',
-      kind: 'btn btn-primary',
-      disabled: !view.write_allowed || !view.candidates.length || Boolean(writeBusy),
-      action: button => applyCleanup(button),
-    }],
+    text: `选了 ${names.length} 个，还没撤下`,
+    note: [savings.join('、'), '撤下只是不给 agent 用，文件还留着，随时能恢复'].filter(Boolean).join('。'),
+    items: names.map(name => `<li><p>「${escape(titleOf(name))}」<small>${escape((state.saved[name] || []).map(agentName).join('、'))}</small></p>
+      <button class="btn btn-quiet btn-small" data-cleanup-unpick="${escape(name)}">不撤这个</button></li>`).join(''),
+    buttons: [
+      {label: '全部不选', kind: 'btn btn-quiet', action: () => { state.cleanupSelected.clear(); renderCleanup(); }},
+      {label: `撤下这 ${names.length} 个`, kind: 'btn btn-primary', disabled: !state.table?.write_allowed || Boolean(writeBusy), action: button => applyCleanup(button)},
+    ],
   });
 }
 
-async function loadCleanup({force = false} = {}) {
-  if (state.cleanup && !force) return;
-  setTask('cleanup', {text: '正在统计用量，然后生成清理名单…'});
+async function loadCleanup() {
   try {
     state.cleanup = await api('/api/cleanup');
-    state.cleanupSelected = new Set(state.cleanup.candidates.map(row => row.name));
-    state.cleanupTries = 0;
-    clearTask('cleanup');
-    renderCleanup();
   } catch (error) {
-    if (error.retry && state.cleanupTries < 60) {
-      state.cleanupTries++;
-      setTask('cleanup', {text: '正在统计用量，完成后再生成名单…'});
-      renderCleanup();
-      setTimeout(() => loadCleanup({force: true}), 2000);
-      return;
-    }
-    setTask('cleanup', {text: error.message, tone: 'error', retry: () => { state.cleanupTries = 0; loadCleanup({force: true}); }});
-    renderCleanup();
+    toast({text: '已撤下的技能没能读出来：' + error.message, tone: 'error'});
   }
+  renderCleanup();
 }
 
+/* 先请后台核对一遍（依赖、你的文件里提到的位置），确认后再撤下。 */
 async function applyCleanup(button) {
-  const view = state.cleanup;
-  if (!view) return;
-  const cleaned = view.candidates.filter(row => state.cleanupSelected.has(row.name)).map(row => row.name);
-  const keep = view.candidates.filter(row => !state.cleanupSelected.has(row.name)).map(row => row.name);
-  const warnings = [...new Set(view.candidates.filter(row => state.cleanupSelected.has(row.name))
-    .flatMap(row => (row.path_warnings || []).map(w => '受影响的文件：' + w.file)))];
+  const skills = [...state.cleanupSelected];
+  if (!skills.length) return;
+  let plan;
+  try {
+    plan = await withBusy(button, '正在核对…', () => api('/api/cleanup/preview', {skills}));
+  } catch (error) {
+    toast({text: error.message, tone: 'error', sticky: true});
+    return;
+  }
+  const files = new Set((plan.path_warnings || []).map(warning => warning.file));
   const ok = await confirmDialog({
-    title: '清理这些技能',
-    lines: [`将从所有 agent 撤下这 ${cleaned.length} 个技能。`,
-            keep.length ? `取消勾选的 ${keep.length} 个会记为今天留下。` : '',
-            ...warnings],
-    groups: [{label: '要撤下的技能', items: cleaned.map(name => ({name}))}],
-    note: '文件留在仓库，可以在操作记录里撤销。', okText: '清理',
+    title: '撤下这些技能',
+    lines: [`从所有 agent 撤下这 ${skills.length} 个技能，文件还留着，随时能恢复。`,
+            ...(plan.dependency_warnings || []),
+            files.size ? `有 ${files.size} 份你的文件里写着这些技能现在的位置，撤下后那些说法可能要改。` : ''],
+    groups: [{label: '要撤下的技能', items: skills.map(name => ({name}))}],
+    note: '撤下后也能在提示条或操作记录里撤销。', okText: '撤下',
   });
   if (!ok) return;
   await runWrite({
     button,
-    busyText: '正在清理…',
+    busyText: '正在撤下…',
     work: async () => {
-      const written = await api('/api/cleanup/apply', {
-        keep, candidates: view.candidates.map(row => row.name), revision: view.revision, confirmed: true,
-      });
-      await loadCleanupForce();
+      const written = await api('/api/cleanup/apply', {skills, revision: plan.revision, confirmed: true});
+      state.cleanupSelected.clear();
       await refreshEverything();
       return written;
     },
     success: written => ({
-      text: written.message || '清理完成',
-      undo: undoButton => undoOperation(written.id, {skills: cleaned, message: written.message, button: undoButton}),
+      text: pastTense(written.message || `撤下了 ${skills.length} 个技能`),
+      undo: undoButton => undoOperation(written.id, {skills, message: pastTense(written.message), button: undoButton}),
     }),
   });
 }
 
-async function loadCleanupForce() {
-  state.cleanup = null;
-  await loadCleanup({force: true});
-}
+$('cleanup-search').addEventListener('input', renderCleanup);
 
 $('cleanup-rows').addEventListener('change', event => {
   const name = event.target.dataset.cleanup;
@@ -2143,10 +2170,10 @@ $('cleanup-rows').addEventListener('change', event => {
 
 $('cleanup-rows').addEventListener('click', event => {
   const row = event.target.closest('tr');
-  if (row && !event.target.closest('input')) row.querySelector('input')?.click();
+  if (row && !event.target.closest('input, label')) row.querySelector('input')?.click();
 });
 
-$('withdrawn-refresh').addEventListener('click', event => withBusy(event.currentTarget, '正在刷新…', loadCleanupForce));
+$('withdrawn-refresh').addEventListener('click', event => withBusy(event.currentTarget, '正在刷新…', loadCleanup));
 
 $('withdrawn-list').addEventListener('click', async event => {
   const button = event.target.closest('button');
@@ -2156,7 +2183,7 @@ $('withdrawn-list').addEventListener('click', async event => {
   const back = (row?.previous_agents || []).map(agentName).join('、') || '原来的 agent';
   const ok = await confirmDialog({
     title: '恢复这个技能',
-    lines: [`会把它重新分配给${back}。`],
+    lines: [`会把它重新给 ${back} 用。`],
     groups: [{label: '要恢复的技能', items: [{name}]}],
     note: '可以在操作记录里撤销。', okText: '恢复',
   });
@@ -2166,7 +2193,6 @@ $('withdrawn-list').addEventListener('click', async event => {
     busyText: '正在恢复…',
     work: async () => {
       const written = await api('/api/withdrawn/restore', {skills: [name], revision: state.cleanup.revision, confirmed: true});
-      await loadCleanupForce();
       await refreshEverything();
       return written;
     },
@@ -2184,13 +2210,13 @@ function renderLog() {
   $('log-list').innerHTML = state.logs.map(record => `<li class="${record.undone ? 'is-undone' : ''}">
     <span class="log-time">${escape(new Date(record.time).toLocaleString('zh-CN'))}</span>
     <div class="log-body">
-      <p>${escape(record.message)}</p>
-      <p class="item-note">影响：${escape((record.agents || []).map(id => agentName(id)).join('、') || '技能仓库')}${record.undone ? ' · 已撤销' : record.undo_of ? ' · 这是一次撤销' : ''}</p>
-      ${(record.skills || []).length ? `<details class="fold fold-inner"><summary>影响 ${record.skills.length} 个技能</summary>
-        <p class="item-note">${record.skills.map(escape).join('、')}</p></details>` : ''}
+      <p>${escape(pastTense(record.message))}</p>
+      ${record.undone ? '<p class="item-note">已撤销</p>' : record.undo_of ? '<p class="item-note">这是一次撤销</p>' : ''}
+      ${(record.skills || []).length ? `<details class="fold fold-inner"><summary>涉及 ${record.skills.length} 个技能</summary>
+        <p class="item-note">${record.skills.map(name => escape(titleOf(name))).join('、')}</p></details>` : ''}
     </div>
     <span class="log-end">${record.undone || record.undo_of || !state.table?.write_allowed || writeBusy ? ''
-      : `<button class="btn btn-small" data-undo="${escape(record.id)}">撤销</button>`}</span>
+      : `<button class="btn btn-small btn-quiet" data-undo="${escape(record.id)}">撤销…</button>`}</span>
   </li>`).join('') || '<li><p class="empty">还没有操作记录。做过分配、更新、清理之后会显示在这里。</p></li>';
 }
 
@@ -2276,7 +2302,6 @@ function renderDiagnostics() {
       <span class="tag tag-quiet">${agent.status === 'ignored' ? '已忽略' : agent.status === 'discovered' ? '已发现，还没接入' : '有盘点档案'}</span></summary>
     <p>${escape(agent.visibility_note || '')}</p>
     ${(agent.skill_roots?.length ? agent.skill_roots : agent.evidence || []).map(path => `<p class="mono">${pathLabel(path)}</p>`).join('')}
-    ${agent.usage ? `<p class="item-note">使用记录：${escape(agent.usage)}</p>` : ''}
   </details>`).join('');
 
   $('discovery-note').textContent = data.discovery_note;
@@ -2504,41 +2529,6 @@ async function refreshMigrationStatus() {
 
 /* ==================== 启动 ==================== */
 
-async function loadUsage() {
-  // 第一次统计可能要几分钟；前 700 毫秒不画出来，很快完成时不闪一下。
-  setTask('usage', {text: '正在统计用量（第一次需要几分钟）', quietMs: TASK_QUIET_MS});
-  const timer = setInterval(async () => {
-    if (tasks.get('usage')?.tone !== 'busy') return;
-    try {
-      const progress = await api('/api/usage-progress');
-      if (progress.running) {
-        setTask('usage', {
-          text: `正在统计用量（第 ${number(progress.done)}/${number(progress.total)} 个会话）`,
-          ratio: progress.total ? progress.done / progress.total : null,
-          quietMs: TASK_QUIET_MS,
-        });
-      }
-    } catch { /* 统计接口偶发失败不打断页面 */ }
-  }, 1000);
-  try {
-    indexUsage(await api('/api/usage'));
-    // 做完直接消失：不再显示「用量统计完成」那一行，免得把表格顶下去又弹回来。
-    clearTask('usage');
-    renderSkillTable();
-    if (state.detail) renderDetail();
-  } catch (error) {
-    clearTask('usage');
-    if (error.retry) {
-      setTask('usage', {text: '用量正在统计，稍后自动重试', tone: 'busy'});
-      setTimeout(loadUsage, 2000);
-    } else {
-      setTask('usage', {text: '用量暂时读不到，技能分配仍可照常操作。', tone: 'error', retry: () => { clearTask('usage'); loadUsage(); }});
-    }
-  } finally {
-    clearInterval(timer);
-  }
-}
-
 function renderFooter() {
   const generated = state.inventory?.generated_at;
   $('footer-note').textContent = '关掉全部看板页面后，程序会在 30 秒内退出；正在检查更新或起中文名时，会等任务完成。'
@@ -2546,6 +2536,8 @@ function renderFooter() {
 }
 
 async function start() {
+  const [startPage, startAgent] = location.hash.slice(1).split('/');
+  if (startAgent) state.agent = decodeURIComponent(startAgent);
   heartbeat();
   setInterval(heartbeat, 10000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) heartbeat(); });
@@ -2565,9 +2557,8 @@ async function start() {
   await refreshAgents().catch(() => {});
   renderMigrationStatus();
   refreshMigrationStatus();
-  loadUsage();
   refreshUpdates();
-  showPage('skills');
+  showPage(startPage && $('page-' + startPage) ? startPage : 'skills');
 }
 
 start();

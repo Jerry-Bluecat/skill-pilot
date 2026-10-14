@@ -94,12 +94,10 @@ def new_skills(home, agents):
     return result
 
 
-def table(home=None, database=None):
+def table(home=None):
     home, registry, agents = load(home)
     catalog = profiles.by_id(home)
     cells = cell_notes(registry, home)
-    from .usage import recorded
-    last_used = recorded(database or home/'.skill-pilot/usage.sqlite')
     # 看板上的中文名和分组只用于显示；没写的技能显示原名。
     groups = labels.read(home)
     display = {name: label for group in groups for name, label in group['skills'].items()}
@@ -113,13 +111,11 @@ def table(home=None, database=None):
                      'source_label': normalize(skill['source'])['label'],
                      'assigned_agents': skill['assigned_agents'], 'requires': skill.get('requires', []),
                      'local_modified': normalization.tree(path) != normalization.tree(home / '.skill-pilot/bases' / name),
-                     'cell_notes': cells[name],
-                     'last_used': {a: '统计不到' if catalog[a]['usage'] is None else '正在统计（第一次需要几分钟）' if last_used is None else last_used.get(name,{}).get(a,'没有使用记录') for a in agents}})
+                     'cell_notes': cells[name]})
     return {'home': str(home), 'revision': revision(home, agents), 'write_allowed': write_allowed(home), 'skills': rows,
             'agents': [{'id': a, 'name': catalog[a]['name'],
                         'activation': '目录改变后会动态刷新' if catalog[a]['activation'] == 'immediate' else '新会话生效',
                         'activation_text': profiles.activation_text(catalog[a]),
-                        'usage_available': catalog[a]['usage'] is not None, 'usage_note': catalog[a]['usage_note'],
                         'count': sum(a in s['assigned_agents'] for s in rows),
                         'description_chars': sum(s['description_chars'] for s in rows if a in s['assigned_agents'])}
                        for a in agents], 'notes': notes(home, agents), 'new_skills': new_skills(home, agents),

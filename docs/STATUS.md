@@ -11,7 +11,7 @@
 | 各 agent 分别管 | 技能页直接勾选；依赖自动带上 |
 | 更新不用开对话 | 双击看板 → 检查更新，约 25 秒查完、边查边显示、可逐条更新 |
 | 多份副本版本冲突 | 2026-10-10 完成迁移，每个技能只存一份（`~/.skill-pilot/store/`），各 agent 目录为链接 |
-| 装了不知道、占上下文 | 看板显示全部技能与描述字数；用量统计 + 60 天清理 |
+| 装了不知道、占上下文 | 看板按 agent 显示技能和“开场先读多少字”；清理页自己挑要撤下的（2026-10-13 起不再统计用量） |
 
 2026-10-12 的真实数据：登记 130 个技能，97 个分配给至少一个 agent，33 个已撤下。各 agent 技能数与描述字数：Codex 89 个 / 27,448 字，DSH 63 / 17,681，Claude 46 / 12,236，Antigravity 39 / 10,185。统一仓库共 9 次提交。
 
@@ -30,14 +30,26 @@
 - 用词：看板和后台提示统一说 agent，不说“助手”（用户要求）；“让 Codex 解释 / 交给 Codex 合并”保留 Codex，因为确实调用 Codex。
 - 交接与报告：[handoff-generic-agents.md](handoff-generic-agents.md)、[generic-agents-report.md](generic-agents-report.md)（含全部接口字段）、[handoff-generic-agents-frontend.md](handoff-generic-agents-frontend.md)、[generic-agents-frontend-report.md](generic-agents-frontend-report.md)。
 
+看板体检（2026-10-13，Claude）：用户觉得前端仍粗糙、考虑推倒重来，且以后前端不交给 Codex。已从 GitHub 装 Impeccable（`pbakaus/impeccable` 的 `.claude/skills/impeccable`），只分给 Claude；按项目规矩不运行它自带的程序，只用它的方法。在模拟 home 上按它的“挑毛病”流程做了体检，结果 25/40，问题清单见 [frontend-critique-2026-10-13.md](frontend-critique-2026-10-13.md)。结论是保留“待应用 → 应用 → 撤销”这套交互，重做首页组织、用词和排版。用户选了“重做外观和首页、先出技能页几个版本挑”：产品说明写在根目录 [PRODUCT.md](../PRODUCT.md)；技能页样稿 A 总表 / B 按 agent / C 技能清单在 `work/skills-prototype/`（不进仓库，含用户技能数据；`build-data.py` 重新生成数据，`.claude/launch.json` 的 `skills-prototype` 在 8765 端口打开）。用户选了 B，已做进真实看板（Claude，模拟 home 上浏览器逐项验收，185 项单测通过）：
+- 新的整体样子：深色页头、浅冷灰底、每个 agent 一种颜色（按表里顺序取色，页面仍不写死 agent），正文 14px、说明 13px、对比度达标；样式变量全换，其他页面沿用原结构、自动换成新样子。
+- 技能页：左栏选 agent，每个带“开场先读多少字”的条（按分组分段，改了没应用时显示变长或变短）；右边是它“在用 / 可以加的”技能，用开关加撤；左栏下面提醒新 agent 和检查更新。
+- 改动托盘：每处一行，自动带上的写明原因、不能单独取消；手动改的可“不改这处”（自动带上的跟着退回）。加技能直接应用、事后可撤销；撤下才弹一次确认。“受影响的文件”改成托盘里一行可展开的提示。
+- 技能详情：“谁在用”每个 agent 一行带开关；“会一起带上 / 谁要用它”用标签；加依赖的下拉框默认空、选了才能点；存放位置和入口路径收进“技术细节”。
+- 操作记录和完成提示改成过去时（“给 Claude 加了 2 个”）。
+- 看板每次打开页面都重新读前端文件，用户刷新正开着的看板就是新样子。
+
 ## 下一步（按优先级）
 
-1. **新 agent 的剩余部分**：接入和管理已完成（见上）。未做：“让 Codex 查一下”调研按钮（2026-10-13 用户同意改为直接接入、调研只作可选）；Trae、Zcode 等的用量读取器；手动填目录添加 agent。是否在真实环境接入 Trae、Zcode 由用户在看板上自己决定。
+0. **拿掉用量统计、清理改成手动挑**（2026-10-13 用户决定，已完成）：后端由 Codex 在单独副本里做（删除 `skill_pilot/usage/`、60 天规则和 `/api/usage*`、`usage` 命令；清理改为 `GET /api/cleanup` 只给已撤下列表、`POST /api/cleanup/preview`、`POST /api/cleanup/apply {skills}`；命令行 `cleanup <技能...> [--yes]`），Claude 审阅后合并；前端由 Claude 改：技能页和详情不再显示使用情况，清理页列出分给 agent 的技能（开场字数多的在前、可搜），勾选后进托盘、核对依赖和文件提示后撤下，可撤销、可恢复。176 项单测通过，模拟 home 上撤下、撤销、恢复、撤销恢复都实测通过。交接与报告见 [handoff-remove-usage.md](handoff-remove-usage.md)、[remove-usage-report.md](remove-usage-report.md)。用户的 `~/.skill-pilot/usage.sqlite` 留在原地没动，以后可手动删。
+   - 后台进程要换新：用户需关掉全部看板页面、半分钟后重开；换新前别用清理页（新页面配旧后台会报错停下，不会误撤）。
+   - `skill/skill-pilot/SKILL.md` 已改成新命令（去掉 `usage`、清理改为点名撤下、称 agent）。用户同意后，2026-10-13 用 `operations._run` 同一套流程（先备份、写操作记录、可撤销）把统一仓库里的 skill-pilot 换成新版，操作记录“把 skill-pilot 技能说明换成新版”；前后指纹只多了备份、记录和这份文件。自制技能没有现成的“从本地更新”入口，以后再改这份说明要么照此做，要么加一个正式入口。
+   其他页面已细改说法（2026-10-13，Claude）：操作记录（不再列“影响：一串 agent”，技能用中文名）、设置页 agent 一栏（不列文件夹路径）；页面和所选 agent 记在地址里，刷新回到原处。界面规则写在根目录 [DESIGN.md](../DESIGN.md)。检查更新页和诊断页结构未动。
+
+1. **新 agent 的剩余部分**：接入和管理已完成（见上）。未做：“让 Codex 查一下”调研按钮（2026-10-13 用户同意改为直接接入、调研只作可选）；手动填目录添加 agent。是否在真实环境接入 Trae、Zcode 由用户在看板上自己决定。
 2. 小问题：
    - 后端 `store.guard()` 对未解析的 `/var/...` 模拟 home 会判成只读（真实 home 不受影响）；手测模拟 home 时用 `cd "$FAKE" && pwd -P` 得到的 `/private/var/...` 路径启动；
    - 浏览器请求 `/favicon.ico` 得到 403，控制台留一条报错，不影响使用；
    - `follow-builders` 的上游每天更新资讯数据，检查更新几乎每次都会列出它；
-   - Antigravity 的用量统计不到，所以分配给它的技能不会进清理名单；Claude 的会话记录只保留 30 天；
    - `/api/agents` 在用户数据上约 1～3 秒（每次重算版本号和发现目录），页面已不阻塞写入完成提示；以后频繁刷新可考虑缓存；
    - 这一轮代码净增约 1,000 行（主要是接入/不再管理和设置页 agent 一栏），可找时间做一次精简；
    - `interview-skills` 的来源更正（`jennifer88huang/interview-skills` 根目录）尚未写入真实登记表；它已撤下，不急，需要时运行 `skill-pilot set-source interview-skills --repo jennifer88huang/interview-skills --path . --yes`。
@@ -45,6 +57,5 @@
 ## 注意
 
 - Codex 桌面 app 会自己改 `~/.codex/config.toml`（如给运行过的项目目录加信任条目、加功能开关），核对指纹时不要误判为本工具改的。
-- 用户首次打开看板时，用量统计要几分钟；已改为不阻塞其他操作。
 - 改了代码要让后台换新：请用户关掉全部看板页面，30 秒内退出。若用户曾直接退出 Chrome，旧后台可能还在（最长 24 小时）；经用户同意后结束临时目录 `skill-pilot-<uid>-*.lock` 里记录的进程。
-- 项目代码备份在 GitHub 私有仓库 [Simonlau4/skill-pilot](https://github.com/Simonlau4/skill-pilot)；本机技能库、设置和用量数据不上传。
+- 项目代码备份在 GitHub 私有仓库 [Simonlau4/skill-pilot](https://github.com/Simonlau4/skill-pilot)；本机技能库和设置不上传。

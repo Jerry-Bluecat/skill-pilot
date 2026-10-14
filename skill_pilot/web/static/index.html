@@ -26,8 +26,6 @@
     <span id="mode-badge" class="tag tag-quiet">正在读取</span>
   </div>
 
-  <div id="agent-summary" class="agent-summary" aria-label="各 agent 技能概况"></div>
-
   <div id="task-bar" class="task-bar" role="status" aria-live="polite" hidden></div>
 
   <div id="connection" class="banner banner-danger banner-topbar" role="alert" hidden>
@@ -50,41 +48,30 @@
       <div id="new-list" class="banner-list" hidden></div>
     </div>
 
-    <div id="agent-banner" class="banner banner-info" hidden>
-      <div class="banner-row">
-        <span id="agent-text"></span>
-        <span class="banner-actions">
-          <button id="agent-look" class="btn btn-small">去看看</button>
-        </span>
+    <div class="skills-split">
+      <aside class="rail">
+        <nav id="agent-rail" class="rail-list" aria-label="选择 agent"></nav>
+        <div id="rail-notes"></div>
+      </aside>
+
+      <div>
+        <div id="agent-head" class="agent-head"></div>
+
+        <div class="toolbar">
+          <input id="skills-search" type="search" class="input input-search" placeholder="搜技能的名字或用途" aria-label="搜索技能" autocomplete="off" spellcheck="false">
+          <div id="skills-tabs" class="segmented" role="group" aria-label="看哪些技能"></div>
+          <span class="toolbar-end">
+            <button id="skills-refresh" class="btn btn-quiet">重新盘点</button>
+            <button id="skills-install" class="btn">安装技能…</button>
+          </span>
+        </div>
+
+        <p id="labels-hint" class="muted" hidden>去「<button id="labels-settings" class="link-btn">设置</button>」填好 AI 服务，就能自动给技能起中文名、按用途分组。</p>
+
+        <div id="skills-list" class="skills-list"></div>
+        <p id="skills-note" class="foot-note"></p>
       </div>
     </div>
-
-    <div class="toolbar">
-      <input id="skills-search" type="search" class="input input-search" placeholder="搜索技能名称或说明" aria-label="搜索技能名称或说明">
-      <div id="skills-filters" class="segmented" role="group" aria-label="筛选技能">
-        <button class="seg" data-filter="all" aria-pressed="true">全部</button>
-        <button class="seg" data-filter="unassigned" aria-pressed="false">没分配给任何 agent</button>
-        <button class="seg" data-filter="stale" aria-pressed="false">很久没用</button>
-        <button class="seg" data-filter="modified" aria-pressed="false">你改过</button>
-        <button class="seg" data-filter="dependency" aria-pressed="false">有依赖</button>
-      </div>
-      <span class="toolbar-end">
-        <button id="skills-refresh" class="btn">重新盘点</button>
-        <button id="skills-install" class="btn btn-primary">安装技能</button>
-      </span>
-    </div>
-
-    <p class="skills-count-line"><span id="skills-count" class="muted"></span>
-      <button id="skills-expand" type="button" class="link-btn" hidden>全部展开</button></p>
-    <p id="labels-hint" class="muted" hidden>去「<button id="labels-settings" class="link-btn">设置</button>」填好 AI 服务，就能自动给技能起中文名、按用途分组。</p>
-
-    <div class="table-wrap">
-      <table class="grid" id="skills-table">
-        <thead><tr id="skills-head"></tr></thead>
-        <tbody id="skills-rows"></tbody>
-      </table>
-    </div>
-    <p id="skills-note" class="foot-note"></p>
   </section>
 
   <!-- ========== 检查更新页 ========== -->
@@ -103,18 +90,18 @@
 
   <!-- ========== 清理页 ========== -->
   <section id="page-cleanup" class="page-section" hidden>
-    <div id="cleanup-savings" class="savings"></div>
-    <p class="muted">名单默认全选。取消勾选要留的，视为今天用过，60 天后才会再出现。清理只从 agent 撤下，文件留在仓库。</p>
-    <p id="cleanup-status" class="muted" role="status"></p>
-    <div class="table-wrap table-wrap-mid">
+    <p class="muted">挑出不想再给任何 agent 用的技能，一次从所有 agent 撤下。开场字数多的排在前面。撤下只是不给 agent 用，文件还留着，随时能恢复。</p>
+    <div class="toolbar">
+      <input id="cleanup-search" type="search" class="input input-search" placeholder="搜技能的名字或用途" aria-label="搜索要撤下的技能" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="table-wrap">
       <table class="grid">
         <thead>
           <tr>
-            <th class="col-check">清理</th>
+            <th class="col-check">撤下</th>
             <th>技能</th>
-            <th>分配给谁</th>
-            <th>最近使用</th>
-            <th class="col-num">说明字数</th>
+            <th>现在给了谁</th>
+            <th class="col-num">开场字数</th>
           </tr>
         </thead>
         <tbody id="cleanup-rows"></tbody>
@@ -122,7 +109,7 @@
     </div>
 
     <h2 class="section-title">已撤下的技能</h2>
-    <p class="muted">文件仍在仓库里。恢复会重新分配给原来的 agent，可以撤销。</p>
+    <p class="muted">文件都还在。恢复会重新给原来的 agent 用，可以撤销。</p>
     <p class="row-wrap">
       <button id="withdrawn-refresh" class="btn btn-small">刷新列表</button>
       <button id="withdrawn-check" class="btn btn-small">检查已撤下技能的更新</button>
@@ -132,7 +119,7 @@
 
   <!-- ========== 操作记录页 ========== -->
   <section id="page-log" class="page-section" hidden>
-    <p class="muted">每次写入都会记录在这里。撤销会恢复技能内容、分配入口和工具添加的停用设置。</p>
+    <p class="muted">每次改动都记在这里，都能撤销。后来的改动和要撤销的那次有重叠时，会先提醒你。</p>
     <p><button id="log-refresh" class="btn btn-small">刷新记录</button></p>
     <ol id="log-list" class="timeline"></ol>
   </section>
@@ -284,13 +271,17 @@
   <div id="detail-body" class="side-panel-body"></div>
 </aside>
 
-<div id="action-bar" class="action-bar" hidden>
-  <div class="action-text">
-    <p id="action-summary"></p>
-    <p id="action-note" class="muted"></p>
+<section id="action-bar" class="action-bar" aria-label="还没生效的改动" hidden>
+  <div class="action-head">
+    <div class="action-text">
+      <p id="action-summary"></p>
+      <p id="action-note"></p>
+    </div>
+    <div id="action-buttons" class="action-buttons"></div>
   </div>
-  <div id="action-buttons" class="action-buttons"></div>
-</div>
+  <ul id="action-list" class="action-list" hidden></ul>
+  <div id="action-extra" class="action-extra" hidden></div>
+</section>
 
 <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
 

@@ -7,8 +7,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests import test_operations
-from skill_pilot import agents, operations, profiles, store, usage
+from skill_pilot import agents, operations, profiles, store
 from skill_pilot.sync import assignment_entries, disabled_lists, visibility
+from skill_pilot.scan import scan
 
 
 def original_assignment_entries(name, agents):
@@ -90,11 +91,7 @@ class GenericAgentTests(unittest.TestCase):
         self.assertFalse((self.home / '.zcode/skills/other').exists())
         self.assign('other', 'zcode')
         self.assertTrue((self.home / '.zcode/skills/other').is_symlink())
-        self.assertEqual(operations.table(self.home)['skills'][0]['last_used']['zcode'], '统计不到')
-        coverage = usage.report(self.home)['coverage']
-        self.assertFalse(coverage['zcode']['available'])
-        self.assertEqual(coverage['zcode']['message'], '统计不到用量：还没接入它的使用记录。')
-        self.assertEqual(coverage['antigravity']['message'], '统计不到用量：还没找到读取它使用记录的办法。')
+        self.assertNotIn('last_used', operations.table(self.home)['skills'][0])
         point, visible = self.fingerprint(), visibility(self.home)
         ignored_before = profiles.state(self.home)['ignored']
         plan = agents.preview_leave('zcode', self.home)
@@ -166,6 +163,23 @@ class GenericAgentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'One 和 Two 共用一个技能目录，没法只给 One'):
             self.assign('other', 'one')
         self.assertEqual(self.fingerprint(), point)
+
+    def test_legacy_custom_profile_fields_are_ignored_without_rewriting(self):
+        local = profiles.state(self.home)
+        custom = profiles.custom('legacy', 'Legacy', '.legacy/skills')
+        custom.update(usage={'reader': 'missing', 'roots': ['/retired/path']},
+                      usage_note='old note', usage_reason='old reason')
+        local['custom'] = [custom]
+        path = self.home / '.skill-pilot/agents.json'
+        path.write_text(json.dumps(local))
+        before = path.read_bytes()
+        profile = profiles.by_id(self.home)['legacy']
+        self.assertEqual(set(profile), set(profiles.PROFILES[0]))
+        for row in scan(self.home)['agents']:
+            self.assertNotIn('usage', row)
+            self.assertNotIn('usage_note', row)
+            self.assertNotIn('usage_reason', row)
+        self.assertEqual(path.read_bytes(), before)
 
     def test_builtin_departure_and_reenrollment_preserve_shared_readers(self):
         operations.apply_assign([{'skill': 'other', 'agent': 'codex', 'enabled': False},

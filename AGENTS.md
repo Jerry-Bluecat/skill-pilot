@@ -11,7 +11,8 @@
 
 ## 真实数据与安全边界
 
-- 真实数据：`~/.skill-pilot/`（`store/` 技能正本 git 仓库、`bases/`、`registry.json`、`agents.json`、`usage.sqlite`、`logs/`、`backups/`、`labels.json` 中文名与分组、`settings.json` 含 API key：不复制进模拟 home、不进备份和日志、不在回复里出现），四个技能根 `~/.codex/skills`、`~/.agents/skills`（Codex 与 DSH 共读）、`~/.claude/skills`、`~/.gemini/config/skills`，以及 `~/.codex/config.toml` 的 `[skills] config`。
+- 真实数据：`~/.skill-pilot/`（`store/` 技能正本 git 仓库、`bases/`、`registry.json`、`agents.json`、`logs/`、`backups/`、`labels.json` 中文名与分组、`settings.json` 含 API key：不复制进模拟 home、不进备份和日志、不在回复里出现），四个技能根 `~/.codex/skills`、`~/.agents/skills`（Codex 与 DSH 共读）、`~/.claude/skills`、`~/.gemini/config/skills`，以及 `~/.codex/config.toml` 的 `[skills] config`。
+- 旧版留下的用量数据库只保留，不读取、改写、删除或复制进模拟 home。
 - 永远不碰：`~/.claude/skills/synced/`（Claude 桌面 app 自管）、`~/.codex/skills/.system/`、各家插件和内置目录、`~/.agents/.skill-lock.json`（只读）。
 - 开发和测试只用系统临时目录里的模拟 home（`scripts/make-fake-home.py`；`tests/__init__.py` 断言目标 home 在临时目录）。对真实 home 运行本工具一律带 `SKILL_PILOT_READ_ONLY=1`。
 - 对真实技能库做分配、更新、清理、改来源、撤销，必须是用户在当次对话里明确要求的；优先让用户自己在看板上点。
@@ -20,7 +21,7 @@
 
 ## 运行与测试
 
-- 解释器固定为 `/Users/j/.local/share/uv/python/cpython-3.11-macos-aarch64-none/bin/python3.11`（`python3` 指向 Codex 运行时，可能变化；系统 3.9 没有 `tomllib`）。只用标准库；DSH 会话记录的 zstd 解码调用本机 Node。
+- 解释器固定为 `/Users/j/.local/share/uv/python/cpython-3.11-macos-aarch64-none/bin/python3.11`（`python3` 指向 Codex 运行时，可能变化；系统 3.9 没有 `tomllib`）。只用标准库。
 - 全量测试：`PYTHONDONTWRITEBYTECODE=1 <上面的解释器> -m unittest discover -q`（约 40 秒）。前端改动后另跑 `node --check skill_pilot/web/static/app.js`。
 - 启动器与命令行入口：`sh scripts/build-app.sh` 生成 `~/Applications/Skill Pilot.app` 和 `~/.local/bin/skill-pilot`。
 - 代码量检查：`find skill_pilot -name "*.py" -o -name "*.js" -o -name "*.html" | xargs wc -l`。
@@ -29,12 +30,12 @@
 
 | 位置 | 作用 |
 | --- | --- |
-| `skill_pilot/profiles/` | 四个 agent 的档案：技能根、共享关系、停用方式、用量来源 |
+| `skill_pilot/profiles/` | agent 档案：技能根、共享关系、停用方式、手动调用标记 |
 | `scan.py`、`store.py`、`sync.py` | 盘点、统一仓库与迁移备份、按分配表对账链接 |
 | `operations.py`、`codex_config.py` | 分配、依赖、安装、收编、操作记录与撤销；Codex 停用条目只增删工具自己加的 |
 | `updates.py`、`sources/`、`normalization.py` | 检查更新（后台任务、逐条结果）、GitHub/飞书来源、嵌套 SKILL.md 改名 |
 | `labels.py` | 本机 AI 服务设置、中文名与分组、分批整理与安全保存 |
-| `usage/`、`cleanup.py` | 各 agent 用量账本、60 天清理与恢复 |
+| `cleanup.py` | 手动挑选技能撤下、已撤下名单与恢复 |
 | `web/` | 本机看板（`127.0.0.1` 随机端口加口令；`static/` 为前端） |
 | `skill/skill-pilot/` | 装给各 agent 的 `skill-pilot` 技能 |
 | `docs/dependency-decisions.json` | 技能依赖判定表（依赖只来自这里和看板手动加减） |

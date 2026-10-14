@@ -11,23 +11,7 @@ const {chromium} = require('/Users/j/.npm/_npx/31e32ef8478fbf80/node_modules/pla
  function check(condition,label) {if(!condition) throw new Error(label);result.checks.push(label);}
  try {
   await page.goto(url); await page.locator('#mode-badge').getByText('可以管理技能').waitFor();
-  await page.locator('[data-panel="cleanup"]').click();
-  await page.locator('[data-cleanup]').first().waitFor();
-  const boxes=page.locator('[data-cleanup]');
-  check(await boxes.count()>1,'清理名单有多个候选');
-  check(await boxes.evaluateAll(es=>es.every(e=>e.checked)),'清理默认全选');
-  await page.locator('[data-cleanup="sample"]').uncheck();
-  await page.locator('#cleanup-apply').click();
-  await page.locator('#cleanup-status').getByText('共有 0 个候选。',{exact:true}).waitFor();
-  check(fs.existsSync(home+'/.skill-pilot/store/other/SKILL.md'),'清理保留仓库文件');
-  check(!fs.existsSync(home+'/.codex/skills/other'),'清理撤下入口');
   const registry=()=>JSON.parse(fs.readFileSync(home+'/.skill-pilot/registry.json','utf8'));
-  check(!!registry().skills.sample.kept_at,'取消一个候选后记下留下时间');
-  await page.locator('[data-panel="operation-log"]').click();
-  const undoCleanup=page.waitForResponse(r=>r.url().endsWith('/api/undo'));
-  await page.locator('[data-undo]').first().click(); await undoCleanup;
-  await page.locator('#operation-list').getByText('已撤销',{exact:true}).waitFor();
-  check(fs.existsSync(home+'/.codex/skills/other'),'撤销清理恢复入口');
   await page.locator('[data-panel="assignments"]').click();
   await page.getByLabel('Claude 使用 grill-me',{exact:true}).check();
   await page.locator('#pending-reasons').getByText(/grilling/).waitFor();

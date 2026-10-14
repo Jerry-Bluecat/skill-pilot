@@ -318,9 +318,8 @@ def scan(home=None, applications=None):
                 roots[key] = scan_root(home / relative, True, cache, user_root=False)
                 roots[key].update(category=category, readers=[profile["id"]])
             readonly.append(key)
-        agents.append({**profile, **detect, 'disable': profile['disable_note'], 'usage': profile['usage_note'],
+        agents.append({**profile, **detect, 'disable': profile['disable_note'],
                        'activation': profile['activation_note'], 'activation_text': profiles.activation_text(profile),
-                       'usage_available': profile['usage'] is not None,
                        "status": "profile_available", "evidence": evidence,
                        "skill_roots": ids, "readonly_roots": readonly,
                        "visible_skill_count": len(visible),

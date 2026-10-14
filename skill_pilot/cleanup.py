@@ -1,154 +1,62 @@
-"""60-day eligibility, keep records, withdrawal and reversible restoration."""
-import json
-import sqlite3
-import tarfile
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+"""Manual withdrawal and reversible restoration of registered skills."""
+from datetime import datetime, timezone
 
-from . import operations, usage
-from .scan import metadata
+from . import labels, operations
 from .sync import reconcile_assignments
-from .usage.common import timestamp
 
 
-def installations(home, registry, usage_rows):
-    names = usage.mapping(home,registry)
-    lock_path = home/'.agents/.skill-lock.json'
-    lock = json.loads(lock_path.read_text()).get('skills',{}) if lock_path.exists() else {}
-    locked = {}
-    for alias, item in lock.items():
-        name, date = names.name(alias), timestamp(item.get('installedAt'))
-        if name and date:
-            if name not in locked or date < locked[name]['date']:
-                locked[name] = {'date':date,'evidence':'.agents/.skill-lock.json installedAt'}
-    originals = {}
-    # The first migration archive preserves original file times, unlike the rebuilt store.
-    backups = sorted((home/'.skill-pilot/backups').glob('*/manifest.json'))
-    for manifest in backups:
-        data = json.loads(manifest.read_text())
-        if '.skill-pilot/registry.json' in data.get('existing',[]):
-            continue
-        archive_path = manifest.parent/'files.tar'
-        if not archive_path.exists():
-            continue
-        with tarfile.open(archive_path) as archive:
-            roots = {}
-            for member in archive.getmembers():
-                if member.isfile() and member.name.endswith('/SKILL.md'):
-                    name = names.path(member.name)
-                    if name:
-                        roots[str(Path(member.name).parent)] = name
-            for member in archive.getmembers():
-                if not (member.isfile() or member.isdir()):
-                    continue
-                for root, name in roots.items():
-                    if member.name == root or member.name.startswith(root+'/'):
-                        date = timestamp(member.mtime)
-                        if date and (name not in originals or date < originals[name]['date']):
-                            originals[name] = {'date':date,'evidence':'迁移备份 '+manifest.parent.name+'/'+member.name+' 原文件时间'}
-        break
-    rows = {r['name']:r for r in usage_rows}
-    result = {}
-    for name, skill in registry['skills'].items():
-        if name in locked:
-            result[name] = locked[name]
-        elif name in originals:
-            result[name] = originals[name]
-        elif skill.get('installation_evidence'):
-            result[name] = {'date':timestamp(skill.get('installed_at')),'evidence':skill['installation_evidence']}
-        elif rows.get(name,{}).get('first_seen'):
-            result[name] = {'date':rows[name]['first_seen'],'evidence':'agent 日志中第一次出现（仅用于安装时间）'}
-        else:
-            result[name] = {'date':None,'evidence':'没有可靠证据，视为刚装'}
-    return result
-
-
-def preview(home=None, database=None, now=None, usage_data=None):
+def list_withdrawn(home=None):
     home, registry, agents = operations.load(home)
-    now = now or datetime.now(timezone.utc)
-    cutoff = (now-timedelta(days=60)).isoformat()
-    try:
-        data = usage_data if usage_data is not None else usage.report(home,database,now)
-    except sqlite3.Error:
-        raise ValueError('正在统计，完成后再生成名单。') from None
-    used = {s['name']:s for s in data['skills']}
-    installed = installations(home,registry,data['skills'])
-    recent = {n for n,s in registry['skills'].items() if
-              any(t >= cutoff for t in used.get(n,{}).get('last_used',{}).values()) or
-              (timestamp(s.get('kept_at')) or '') >= cutoff}
-    protected = set()
-    def depend(name, visiting):
-        if name in visiting or name not in registry['skills']:
-            return
-        for dependency in registry['skills'][name].get('requires',[]):
-            protected.add(dependency)
-            depend(dependency,visiting|{name})
-    for name in recent:
-        depend(name,set())
-    candidates, excluded, withdrawn = [], [], []
-    for name, skill in sorted(registry['skills'].items()):
-        description = metadata((home/'.skill-pilot/store'/name/'SKILL.md').read_text()).get('description','')
-        record = used.get(name,{})
-        row = {'name':name,'assigned_agents':skill['assigned_agents'],'description_chars':len(description),
-               'last_used':record.get('last_used',{}),'last_agent':record.get('last_agent'),
-               'last_used_at':record.get('last_used_at'),'installed_at':installed[name]['date'],
-               'installation_evidence':installed[name]['evidence'],'kept_at':skill.get('kept_at'),
-               'path_warnings':operations.path_warnings(skill.get('entries',[]))}
+    return {'revision': operations.revision(home, agents), 'write_allowed': operations.write_allowed(home),
+            'withdrawn': [{'name': name, 'previous_agents': skill.get('withdrawn_agents', []),
+                           'withdrawn_at': skill.get('withdrawn_at')}
+                          for name, skill in sorted(registry['skills'].items()) if skill.get('withdrawn')]}
+
+
+def preview(names, home=None):
+    home, registry, agents = operations.load(home)
+    if not isinstance(names, list) or not names or any(not isinstance(n, str) for n in names):
+        raise ValueError('请选择要撤下的技能，名称需放在列表中。')
+    selected = sorted(set(names))
+    for name in selected:
+        if name not in registry['skills']:
+            raise ValueError(f'「{name}」不在登记表里，请刷新后再选择。')
+        skill = registry['skills'][name]
         if skill.get('withdrawn'):
-            withdrawn.append({**row,'previous_agents':skill.get('withdrawn_agents',[]),'withdrawn_at':skill.get('withdrawn_at')})
-        reasons = []
+            raise ValueError(f'「{name}」已经撤下，请到已撤下列表恢复。')
         if not skill['assigned_agents']:
-            reasons.append('尚未分配')
-        if not installed[name]['date'] or installed[name]['date'] > cutoff:
-            reasons.append('入库未满 60 天或时间缺证据')
-        if any(not data['coverage'].get(a,{}).get('available') for a in skill['assigned_agents']):
-            reasons.append('分配给了统计不到的 agent')
-        if any(t >= cutoff for t in row['last_used'].values()):
-            reasons.append('60 天内用过')
-        if (timestamp(skill.get('kept_at')) or '') >= cutoff:
-            reasons.append('60 天内选择过留下')
-        if name in protected:
-            reasons.append('近期使用技能的依赖')
-        (excluded if reasons else candidates).append({**row,'reasons':reasons})
-    return {'candidates':candidates,'excluded':excluded,'withdrawn':withdrawn,'coverage':data['coverage'],
-            'savings':{a:sum(s['description_chars'] for s in candidates if a in s['assigned_agents']) for a in agents},
-            'revision':operations.revision(home,agents),'checked_at':now.isoformat(),
-            'write_allowed':operations.write_allowed(home),'ledger':data.get('ledger'),
-            'scanned_bytes':data.get('scanned_bytes',0)}
+            raise ValueError(f'「{name}」没有分配给任何 agent，不能撤下。')
+    titles = {name: title or name for group in labels.read(home)
+              for name, (title, _) in group['skills'].items()}
+    dependency_warnings = [f'「{titles.get(name, name)}」还要用「{titles.get(dependency, dependency)}」，撤下后它可能用不了。'
+                           for name, skill in sorted(registry['skills'].items())
+                           if name not in selected and skill['assigned_agents']
+                           for dependency in sorted(set(skill.get('requires', [])) & set(selected))]
+    removed = sorted({entry for name in selected for entry in registry['skills'][name]['entries']})
+    return {'skills': selected, 'message': f'从所有 agent 撤下 {len(selected)} 个技能',
+            'dependency_warnings': dependency_warnings, 'path_warnings': operations.path_warnings(removed),
+            'revision': operations.revision(home, agents)}
 
 
-def apply(keep=None, confirmed=False, home=None, database=None, expected=None, candidate_names=None):
-    if not confirmed:
-        raise ValueError('清理需要用户明确同意，请先查看名单，再加 --yes 执行。')
+def apply(names, confirmed=False, home=None, expected=None):
     home, registry, agents = operations.load(home)
-    # Reject out-of-scope writes before scanning or creating a ledger.
-    operations.guard(home/'.skill-pilot',home)
-    view = preview(home,database)
-    offered = {s['name'] for s in view['candidates']}
-    if expected and expected != view['revision']:
-        raise ValueError('目录内容已经变了，请刷新清理名单。')
-    if candidate_names is not None and set(candidate_names) != offered:
-        raise ValueError('用量或清理名单已经变了，请刷新后再选择。')
-    keep = set(keep or [])
-    if not keep <= offered:
-        raise ValueError('要留下的技能不在本次清理名单里，请刷新后再选择。')
-    selected = sorted(offered-keep)
-    if not offered:
-        return {'message':'没有符合条件的清理技能。'}
-    plan = operations.assignment_plan(registry,agents,[{'skill':n,'agent':a,'enabled':False}
-                for n in selected for a in registry['skills'][n]['assigned_agents']],home)
+    operations.guard(home/'.skill-pilot', home)
+    view = preview(names, home)
+    if expected is not None and expected != view['revision']:
+        raise ValueError('目录内容已经变了，请刷新后重新核对。')
+    if confirmed is not True:
+        return {'needs_confirmation': True, **view}
+    selected = view['skills']
     now = datetime.now(timezone.utc).isoformat()
     def mutate(current, checked):
         for name in selected:
             skill = current['skills'][name]
-            skill.update(withdrawn=True,withdrawn_at=now,withdrawn_agents=list(skill['assigned_agents']),
-                         withdrawn_entries=list(skill['entries']),assigned_agents=[])
-        for name in keep:
-            current['skills'][name]['kept_at'] = now
-        reconcile_assignments(current,home,checked,selected)
-        return sorted(offered), [], {'withdrawn':selected,'kept':sorted(keep),
-                                    'path_warnings':plan['path_warnings'],'dependency_warnings':plan['dependency_warnings']}
-    return operations._run(home,registry,agents,view['revision'],f'清理撤下了 {len(selected)} 个技能，留下 {len(keep)} 个',mutate)
+            skill.update(withdrawn=True, withdrawn_at=now, withdrawn_agents=list(skill['assigned_agents']),
+                         withdrawn_entries=list(skill['entries']), assigned_agents=[])
+        reconcile_assignments(current, home, checked, selected)
+        return selected, [], {'withdrawn': selected, 'path_warnings': view['path_warnings'],
+                              'dependency_warnings': view['dependency_warnings']}
+    return operations._run(home, registry, agents, view['revision'], f'撤下了 {len(selected)} 个技能', mutate)
 
 
 def restore(names, home=None, expected=None):
