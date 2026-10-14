@@ -8,10 +8,10 @@ colors:
   shell-ink-muted: "#AEB7C5"
   ground: "#EDF0F4"
   surface: "#FFFFFF"
-  surface-soft: "#F5F7FA"
+  surface-soft: "#F2F4F8"
   surface-deep: "#E6EAF0"
   line: "#DCE1E8"
-  line-strong: "#C3CAD5"
+  line-strong: "#AEB7C5"
   ink: "#18202E"
   ink-secondary: "#465163"
   ink-muted: "#5F6A7B"
@@ -29,21 +29,26 @@ colors:
   agent-7: "#3D7A1F"
   agent-8: "#5B6B85"
 typography:
+  brand:
+    fontFamily: "Avenir Next, Avenir, PingFang SC, -apple-system, Microsoft YaHei, sans-serif"
+    fontSize: "20px"
+    fontWeight: 800
+    lineHeight: 1.3
   title:
-    fontFamily: "PingFang SC, -apple-system, BlinkMacSystemFont, Helvetica Neue, Microsoft YaHei, sans-serif"
-    fontSize: "23px"
-    fontWeight: 600
-    lineHeight: 1.25
+    fontFamily: "Avenir Next, Avenir, PingFang SC, -apple-system, Microsoft YaHei, sans-serif"
+    fontSize: "26px"
+    fontWeight: 700
+    lineHeight: 1.3
   section:
-    fontFamily: "PingFang SC, -apple-system, sans-serif"
-    fontSize: "19px"
-    fontWeight: 600
-    lineHeight: 1.35
+    fontFamily: "Avenir Next, Avenir, PingFang SC, -apple-system, Microsoft YaHei, sans-serif"
+    fontSize: "20px"
+    fontWeight: 700
+    lineHeight: 1.3
   body:
-    fontFamily: "PingFang SC, -apple-system, sans-serif"
+    fontFamily: "-apple-system, BlinkMacSystemFont, PingFang SC, Helvetica Neue, Microsoft YaHei, sans-serif"
     fontSize: "14px"
     fontWeight: 400
-    lineHeight: 1.6
+    lineHeight: 1.65
   note:
     fontFamily: "PingFang SC, -apple-system, sans-serif"
     fontSize: "13px"
@@ -58,8 +63,8 @@ typography:
     fontFamily: "SF Mono, ui-monospace, Menlo, monospace"
     fontSize: "12px"
 rounded:
-  sm: "6px"
-  md: "10px"
+  sm: "8px"
+  md: "12px"
   tray: "12px"
   pill: "999px"
 spacing:
@@ -76,8 +81,8 @@ components:
     rounded: "{rounded.sm}"
     height: "34px"
   button-primary:
-    backgroundColor: "{colors.ink}"
-    textColor: "{colors.surface}"
+    backgroundColor: "{colors.shell}"
+    textColor: "{colors.shell-ink}"
     rounded: "{rounded.sm}"
   switch-on:
     backgroundColor: "{colors.agent-1}"
@@ -98,11 +103,11 @@ components:
 
 这是一个“干活”的界面：打开就要知道有什么要处理，改完马上生效、随时能撤销。外观只负责四件事：字、配色、疏密，以及一个特色元素，也就是每个 agent 的“开场先读多少字”的条。导航、按钮、开关、表格都用大家熟悉的样子，不自创控件。
 
-页面的使用场景：白天在 Mac 上，开完几轮 agent 对话后花几分钟集中整理技能，所以只做浅色。
+页面的使用场景：白天在 Mac 上，开完几轮 agent 对话后花几分钟集中整理技能，所以只做浅色。SP 管理电脑上的本地技能，按桌面窗口设计和验收。
 
 ## Colors
 
-- 深墨色 `shell` 只用在页头那一行；页面底色是浅冷灰 `ground`，内容放在白色 `surface` 上。不要回到暖灰加单一强调色（Notion 那种）。
+- brandkit 的五种品牌色：深墨色 `#18202E`、抬起一层的深墨色 `#262F42`、冷白色 `#F2F4F8`、浅冷灰 `#EDF0F4` 和钢灰 `#AEB7C5`。页头、主按钮和提示条用深墨色，主按钮悬停用第二种深墨色；页面底色用浅冷灰，分组与控件悬停用冷白色，控件边框用钢灰，内容仍放在白色面板上。
 - 文字三档：`ink` 正文，`ink-secondary` 说明，`ink-muted` 次要信息；`ink-muted` 只用在 12px 以上，且背景是白色或 `ground`。
 - **每个 agent 一种颜色**，按 `/api/table` 给的顺序从 `agent-1` 到 `agent-8` 依次取（`agentColor()`）。页面里凡是代表某个 agent 的地方（色块、字数条、开关打开时）都用它的颜色，别处不用这些颜色做装饰。
 - **黄色只表示“改了还没生效”**：开关外圈、托盘、行底色。撤下用 `danger-ink` 字色提醒，不用大片红色。
@@ -110,7 +115,7 @@ components:
 
 ## Typography
 
-一套系统中文字体（苹方），不引外网字体。正文 14px，说明 13px，最小 12px；标题 23px，分节 19px，层级靠字号和粗细，不靠颜色。数字一律等宽数字（`tabular-nums`，已在 body 上开启）。技能英文原名用等宽小字跟在中文名后面。
+品牌字标和标题用这台 Mac 已有的 Avenir Next，中文标题回退到苹方；正文用系统界面字体，中文仍是苹方。所有字体来自本机。品牌字标 20px / 800，标题 26px / 700，分节 20px / 700；正文 14px，说明 13px，最小 12px，正文行高 1.65。层级靠字号和粗细，不靠颜色。数字一律等宽数字（`tabular-nums`，已在 body 上开启）。技能英文原名用等宽小字跟在中文名后面。
 
 ## Layout
 
@@ -125,10 +130,11 @@ components:
 
 ## Shapes
 
-控件圆角 6px，面板 10px，底部托盘 12px，开关和标签用全圆角。不用超过 1px 的彩色左边框做强调。
+控件圆角 8px，面板和底部托盘 12px，开关和标签用全圆角。不用超过 1px 的彩色左边框做强调。
 
 ## Components
 
+- **页头**：高度至少 60px，品牌字标与 SP 标志并列，当前导航入口用冷白色细线标明。
 - **开关**：加/撤技能都用开关（`role="switch"`），打开时是该 agent 的颜色；改了没生效时外圈多一圈黄。
 - **底部托盘**（`#action-bar`）：所有“改了还没生效”的事都进这里，每处一行，写清给谁、加还是撤下、为什么（自动带上的写原因）。手动改的每处都能“不改这处”。
 - **确认**：能撤销的操作直接做、事后给撤销提示；只有撤下、清理、不再管理这类操作才弹一次确认框。确认框第一句写结果，不列文件路径。
@@ -144,3 +150,13 @@ components:
 - 不要：路径、仓库、链接、哈希这类词出现在主界面。
 - 不要：为一件不需要打断的事弹对话框。
 - 不要：用 emoji 或字符代替图标；需要图标时用统一线宽的 SVG。
+
+## 图标
+
+2026-10-14 用 brandkit 建立 SP 图标系统。主标志由相扣的 S 路径和 P 回环组成，表示一份技能库分给多个 agent；只使用深墨色和冷白色。页头标志为 34px，导航图标为 18px，沿用现有文字和选中状态。
+
+六个导航图标共用 24 × 24 网格、1.75 的线宽与圆角：技能用叠层，更新用循环箭头，清理用刷子，记录用时钟，诊断用带波形的盾牌，设置用滑杆。图标与文字一起显示，读屏只读文字。浏览器小图标使用深墨色方底和冷白色标志。
+
+设计板在 `docs/brand/skill-pilot-brandkit.png`；深浅标志与单独的导航图标在 `skill_pilot/web/static/brand/`，浏览器小图标在 `skill_pilot/web/static/favicon.svg`。页面直接内嵌图形，加载不依赖外部服务。
+
+Mac 应用图标使用同一枚 SP 标志，深墨色圆角方底，四周留透明边缘以匹配系统应用图标。1024 × 1024 原稿在 `assets/SkillPilot.svg`，安装素材在 `assets/SkillPilot.icns`，包含 16、32、128、256、512 点及各自两倍尺寸。`scripts/build-app.sh` 会复制图标并写入应用图标配置，重新生成启动器时仍会保留它。

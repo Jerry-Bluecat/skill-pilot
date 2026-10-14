@@ -79,6 +79,15 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.request("/../PLAN.md", headers)[0], 404)
         self.assertEqual(self.request('/?token=' + self.server.token)[0], 200)
 
+    def test_favicon_requires_session_and_uses_svg_content_type(self):
+        self.assertEqual(self.request('/favicon.svg')[0], 403)
+        with urllib.request.urlopen(self.server.origin + '/favicon.svg?token=' + self.server.token) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.headers.get_content_type(), 'image/svg+xml')
+            self.assertIn(b'<svg', response.read())
+        headers = {"X-Skill-Pilot-Token": self.server.token}
+        self.assertEqual(self.request('/brand/../favicon.svg', headers)[0], 404)
+
 
 class MigrationWebTests(unittest.TestCase):
     def setUp(self):

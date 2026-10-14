@@ -4,7 +4,8 @@ PROJECT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 APP="$HOME/Applications/Skill Pilot.app"
 CLI="$HOME/.local/bin/skill-pilot"
 PYTHON="$HOME/.local/share/uv/python/cpython-3.11-macos-aarch64-none/bin/python3.11"
-mkdir -p "$APP/Contents/MacOS" "$(dirname "$CLI")"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$(dirname "$CLI")"
+cp "$PROJECT/assets/SkillPilot.icns" "$APP/Contents/Resources/SkillPilot.icns"
 cat > "$CLI" <<SCRIPT
 #!/bin/sh
 export PATH="/Users/j/.local/bin:/Users/j/bin:/Users/j/.nvm/versions/node/v24.21.0/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -30,8 +31,9 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Skill Pilot</string>
 <key>CFBundleDisplayName</key><string>Skill Pilot</string>
 <key>CFBundleIdentifier</key><string>local.skill-pilot.dashboard</string>
-<key>CFBundleVersion</key><string>7</string>
+<key>CFBundleVersion</key><string>8</string>
 <key>CFBundleExecutable</key><string>SkillPilot</string>
+<key>CFBundleIconFile</key><string>SkillPilot.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>LSUIElement</key><true/>
 </dict></plist>
