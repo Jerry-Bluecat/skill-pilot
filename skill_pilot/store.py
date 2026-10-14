@@ -14,12 +14,11 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .profiles import PROFILES
+from . import profiles
 from .scan import SKIP_CONTENT, content_digest, scan_root
 from .sync import reconcile, visibility
 
 PROJECT = Path(__file__).resolve().parents[1]
-PROTECTED = {".codex/skills/.system", ".claude/skills/synced"}
 EXTRA_SOURCES = ["Documents/AI-Workbench/skills/" + n for n in
                  ("simon-neat", "agency-router", "marketing-router")]
 
@@ -123,23 +122,26 @@ def paired_lark(home):
 
 def preview(home=None, agent_ids=None):
     home = target_home() if home is None else Path(home).resolve()
-    selected = sorted(p["id"] for p in PROFILES) if agent_ids is None else sorted(set(agent_ids))
-    known = {p["id"] for p in PROFILES}
+    if (home / '.skill-pilot/registry.json').is_file():
+        from .agents import preview_join
+        return preview_join(agent_ids or [], home)
+    catalog = profiles.all_profiles(home)
+    selected = sorted(p["id"] for p in profiles.PROFILES) if agent_ids is None else sorted(set(agent_ids))
+    known = {p["id"] for p in catalog}
     if not selected or not set(selected) <= known:
-        raise ValueError("请至少选择一个有接入档案的助手。")
-    if ("codex" in selected) != ("dsh" in selected):
-        raise ValueError("Codex 和 DSH 共用一个目录，本次迁移请一起选择。")
+        raise ValueError("请至少选择一个有接入档案的 agent。")
+    profiles.require_shared(selected, catalog)
     before = visibility(home)
     lock_path = home / ".agents/.skill-lock.json"
     lock = json.loads(lock_path.read_text()).get("skills", {}) if lock_path.exists() else {}
     origins = attribution()
     lark = paired_lark(home)
     grouped, entries, skipped, state = defaultdict(list), defaultdict(list), [], {}
-    roots = sorted({r for p in PROFILES if p["id"] in selected for r in p["skill_roots"]})
+    roots = sorted({r for p in catalog if p["id"] in selected for r in p["skill_roots"]})
     for relative in roots:
         root = home / relative
         state[relative] = physical_state(root, include_times=True)
-        inventory = scan_root(root, relative != ".dsh/skills")
+        inventory = scan_root(root, profiles.root_nested(relative, catalog), excluded=profiles.exclusions(root, home))
         if inventory["errors"]:
             raise ValueError("有技能目录没能完整读取，暂时不能迁移。")
         for skill in inventory["skills"]:
@@ -156,7 +158,7 @@ def preview(home=None, agent_ids=None):
         for skill in scan_root(home / relative)["skills"]:
             if skill["valid"] and skill["name"] in grouped:
                 grouped[skill["name"]].append(skill)
-    state["config"] = physical_state(home / ".codex/config.toml")
+    state['configs'] = {r: physical_state(home / r) for r in profiles.config_paths(home, selected)}
     state["lock"] = physical_state(lock_path)
     # Include data already managed by this tool and the source evidence itself.
     for relative in (".skill-pilot/store", ".skill-pilot/bases", ".skill-pilot/registry.json", ".skill-pilot/agents.json"):
@@ -200,22 +202,23 @@ def preview(home=None, agent_ids=None):
                        "entries": sorted(set(entries[name])),
                        "assigned_agents": [a for a in selected if name in before[a]["available"]],
                        "name_mismatch": any(c["name_mismatch"] for c in copies)})
-    for p in PROFILES:
+    for p in catalog:
         for relative, _ in p["readonly_roots"]:
             if (home / relative).exists():
                 skipped.append({"path": str(home / relative), "reason": "内置、插件或桌面同步目录，只查看"})
         if p["id"] not in selected:
-            skipped.extend({"path": str(home / r), "reason": "未选中的助手，保留原样"} for r in p["skill_roots"])
-    for relative in ("Library/Application Support/kimi-desktop/daimon-share/daimon/skills", ".workbuddy/skills-marketplace/skills", ".cursor/skills-cursor", ".trae/builtin"):
-        if (home / relative).exists():
-            skipped.append({"path": str(home / relative), "reason": "未接入的助手，保留原样"})
+            skipped.extend({"path": str(home / r), "reason": "未选中的 agent，保留原样"} for r in p["skill_roots"])
+    for relative in profiles.readonly_roots(home) | {r for r, _ in profiles.CATALOG['classified_roots']}:
+        if (home / relative).exists() and str(home / relative) not in {s['path'] for s in skipped}:
+            skipped.append({"path": str(home / relative), "reason": "未接入或只读的目录，保留原样"})
     payload = {"home": str(home), "agents": selected, "state": state, "skills": skills}
     plan_id = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     after = {a: {"available": v["available"], "automatic": v["automatic"]} for a, v in before.items()}
     return {"plan_id": plan_id, "home": str(home), "agents": selected, "skills": skills,
             "conflicts": [s for s in skills if len(s["options"]) > 1], "before": before, "after": after,
             "roots": roots, "skipped": skipped, "read_only": True,
-            "write_allowed": write_allowed(home)}
+            "write_allowed": write_allowed(home), 'agent_catalog': catalog,
+            'must_select_together': profiles.shared_groups(catalog)}
 
 
 def remove(path, checked):
@@ -250,7 +253,9 @@ def backup(home, plan, checked):
         if real != home / relative and real.is_dir():
             paths.append(str(real.relative_to(home)))
     paths = sorted(set(paths))
-    protected = sorted(PROTECTED | {str((home / p).resolve().relative_to(home)) for p in PROTECTED})
+    protected_roots = profiles.readonly_roots(home)
+    protected = sorted(protected_roots | {str((home / p).resolve().relative_to(home)) for p in protected_roots
+                                          if (home / p).resolve().is_relative_to(home)})
     manifest = {"backup_id": backup_id, "home": str(home), "plan_id": plan["plan_id"], "paths": paths,
                 "existing": [r for r in paths if (home / r).exists() or (home / r).is_symlink()],
                 "before": plan["before"], "protected": protected}
@@ -270,7 +275,7 @@ def _restore(home, backup_id, checked):
     manifest = json.loads((directory / "manifest.json").read_text())
     if manifest["home"] != str(home):
         raise ValueError("这份备份属于另一个目录，不能在这里还原。")
-    protected = manifest.get("protected", sorted(PROTECTED))
+    protected = manifest.get("protected", sorted(profiles.readonly_roots(home)))
     with tarfile.open(directory / "files.tar") as archive:
         for relative in manifest["paths"]:
             checked(home / relative)
@@ -329,6 +334,9 @@ def restore(backup_id, home=None):
 
 def apply(plan_id, home=None, agent_ids=None, choices=None, sources=None):
     home = target_home() if home is None else Path(home).resolve()
+    if (home / '.skill-pilot/registry.json').is_file():
+        from .agents import join
+        return join(agent_ids or [], plan_id, home=home, choices=choices)
     checked = lambda p: guard(p, home)
     checked(home / ".skill-pilot")
     with transaction(home) as lock:
@@ -336,8 +344,6 @@ def apply(plan_id, home=None, agent_ids=None, choices=None, sources=None):
         plan = preview(home, agent_ids)
         if plan["plan_id"] != plan_id:
             raise ValueError("目录内容已经变了，请重新预览并核对后再迁移。")
-        if (home / ".skill-pilot/registry.json").exists():
-            raise ValueError("这里已经完成首次迁移，请先还原再演练；后续收编属于下一阶段。")
         choices, sources = choices or {}, sources or {}
         if not isinstance(choices, dict) or not isinstance(sources, dict):
             raise ValueError("核对结果的格式不对，请重新打开核对页。")
@@ -379,7 +385,7 @@ def apply(plan_id, home=None, agent_ids=None, choices=None, sources=None):
                                             "entries": skill["entries"], "installed_at": source.get("record", {}).get("installedAt", datetime.now(timezone.utc).isoformat()),
                                             "normalization": processing}
             write_json(home / ".skill-pilot/registry.json", registry, checked)
-            write_json(home / ".skill-pilot/agents.json", {"onboarded": plan["agents"], "ignored": ["kimi"]}, checked)
+            write_json(home / ".skill-pilot/agents.json", {**profiles.state(home), 'onboarded': plan['agents']}, checked)
             changed = reconcile(registry, home, checked)
             store = checked(home / ".skill-pilot/store")
             env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
@@ -390,13 +396,13 @@ def apply(plan_id, home=None, agent_ids=None, choices=None, sources=None):
             after = visibility(home)
             for agent, original in plan["before"].items():
                 if any(after[agent][k] != original[k] for k in ("available", "automatic")):
-                    raise ValueError("迁移后有助手能看到的技能名单变了")
+                    raise ValueError("迁移后有 agent 能看到的技能名单变了")
                 for name in original["available"]:
                     expected = ([registry['skills'][name]['base_digest']] if name in chosen and agent in plan["agents"]
                                 else original["versions"][name])
                     if after[agent]["versions"][name] != expected:
                         raise ValueError("迁移后的内容与核对页选择不一致")
-            return {"backup_id": snapshot["backup_id"], "message": "迁移完成，各助手的技能名单已核对一致。",
+            return {"backup_id": snapshot["backup_id"], "message": "迁移完成，各 agent 的技能名单已核对一致。",
                     "changed_entries": len(changed), "after": after,
                     "normalization": {n: s['normalization'] for n, s in registry['skills'].items()}}
         except Exception as error:

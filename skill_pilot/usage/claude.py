@@ -1,5 +1,17 @@
 from .common import reads
 
+FILE_GLOB = '*.jsonl'
+COVERAGE_NOTE = 'Claude 的记录只保留最近 30 天'
+
+
+def session_name(path):
+    return path.stem
+
+
+def relevant(line, mentioned):
+    return (mentioned or any(token in line for token in (b'SKILL.md', b'"Skill"', b'"session_meta"')) or
+            b'"user"' in line[:300])
+
 
 def parse(row, names, session):
     session = row.get('sessionId', session)

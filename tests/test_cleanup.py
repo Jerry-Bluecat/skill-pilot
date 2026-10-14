@@ -57,7 +57,7 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual({s['name'] for s in view['candidates']},{'candidate','dsh-only'})
         reasons={r['name']:r['reasons'] for r in view['excluded']}
         self.assertIn('尚未分配',reasons['unassigned'])
-        self.assertIn('分配给了统计不到的助手',reasons['unknown'])
+        self.assertIn('分配给了统计不到的 agent',reasons['unknown'])
         self.assertIn('入库未满 60 天或时间缺证据',reasons['young'])
         self.assertIn('入库未满 60 天或时间缺证据',reasons['no-date'])
         self.assertIn('60 天内用过',reasons['recent'])

@@ -3,6 +3,33 @@ import json
 import re
 import tomllib
 
+CONFIG_PATH = '.codex/config.toml'
+
+
+def read(home):
+    from .scan import read_disabled
+    return read_disabled(home / CONFIG_PATH, home)
+
+
+def copy_skills_config(source, destination, checked):
+    config = source / CONFIG_PATH
+    if not config.exists():
+        return
+    original = tomllib.loads(config.read_text()).get('skills', {})
+    if set(original) - {'config'}:
+        raise ValueError('技能设置出现新格式，需核对后才能复制。')
+    rows = []
+    for entry in original.get('config', []):
+        fields = []
+        for key, value in entry.items():
+            if key == 'path' and isinstance(value, str) and value.startswith(str(source) + '/'):
+                value = str(destination / value.removeprefix(str(source) + '/'))
+            fields.append(key + ' = ' + (str(value).lower() if isinstance(value, bool) else json.dumps(value, ensure_ascii=False)))
+        rows.append('{ ' + ', '.join(fields) + ' }')
+    path = checked(destination / CONFIG_PATH)
+    checked(path.parent).mkdir(parents=True, exist_ok=True)
+    path.write_text('[skills]\nconfig = [' + ', '.join(rows) + ']\n')
+
 
 def array_span(text):
     section = re.search(r'(?m)^\[skills\][ \t]*(?:#[^\n]*)?$', text)
@@ -87,7 +114,7 @@ def render(original, ownership, desired):
 
 
 def write(home, registry, desired, checked):
-    path = checked(home / '.codex/config.toml')
+    path = checked(home / CONFIG_PATH)
     exists = path.exists()
     original = path.read_bytes() if exists else b''
     try:

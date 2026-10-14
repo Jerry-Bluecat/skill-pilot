@@ -5,6 +5,13 @@ from pathlib import Path
 
 from .common import arguments, reads
 
+FILE_GLOB = 'session.v[34].jsonl.zstd'
+COVERAGE_NOTE = 'DSH 已可统计，v3/v4 按会话去重'
+
+
+def session_name(path):
+    return path.parent.name
+
 
 def decode(path, offset=0, evidence=None):
     decoder = Path(__file__).with_name('dsh_decode.js')

@@ -57,7 +57,7 @@ def installations(home, registry, usage_rows):
         elif skill.get('installation_evidence'):
             result[name] = {'date':timestamp(skill.get('installed_at')),'evidence':skill['installation_evidence']}
         elif rows.get(name,{}).get('first_seen'):
-            result[name] = {'date':rows[name]['first_seen'],'evidence':'助手日志中第一次出现（仅用于安装时间）'}
+            result[name] = {'date':rows[name]['first_seen'],'evidence':'agent 日志中第一次出现（仅用于安装时间）'}
         else:
             result[name] = {'date':None,'evidence':'没有可靠证据，视为刚装'}
     return result
@@ -102,7 +102,7 @@ def preview(home=None, database=None, now=None, usage_data=None):
         if not installed[name]['date'] or installed[name]['date'] > cutoff:
             reasons.append('入库未满 60 天或时间缺证据')
         if any(not data['coverage'].get(a,{}).get('available') for a in skill['assigned_agents']):
-            reasons.append('分配给了统计不到的助手')
+            reasons.append('分配给了统计不到的 agent')
         if any(t >= cutoff for t in row['last_used'].values()):
             reasons.append('60 天内用过')
         if (timestamp(skill.get('kept_at')) or '') >= cutoff:
@@ -136,7 +136,7 @@ def apply(keep=None, confirmed=False, home=None, database=None, expected=None, c
     if not offered:
         return {'message':'没有符合条件的清理技能。'}
     plan = operations.assignment_plan(registry,agents,[{'skill':n,'agent':a,'enabled':False}
-                for n in selected for a in registry['skills'][n]['assigned_agents']])
+                for n in selected for a in registry['skills'][n]['assigned_agents']],home)
     now = datetime.now(timezone.utc).isoformat()
     def mutate(current, checked):
         for name in selected:
@@ -158,7 +158,7 @@ def restore(names, home=None, expected=None):
     if not names or any(n not in registry['skills'] or not registry['skills'][n].get('withdrawn') for n in names):
         raise ValueError('请选择已撤下的技能。')
     changes = [{'skill':n,'agent':a,'enabled':True} for n in names for a in registry['skills'][n].get('withdrawn_agents',[])]
-    plan = operations.assignment_plan(registry,agents,changes)
+    plan = operations.assignment_plan(registry,agents,changes,home)
     def mutate(current, checked):
         current.update(plan['registry'])
         for name in names:

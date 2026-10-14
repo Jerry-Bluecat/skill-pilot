@@ -11,6 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from skill_pilot.store import EXTRA_SOURCES, check_links, guard
+from skill_pilot import profiles
 
 
 def make_fake_home(source, destination):
@@ -23,8 +24,12 @@ def make_fake_home(source, destination):
     if destination.exists() and any(destination.iterdir()):
         raise ValueError("目标目录已有文件，请换一个空目录。")
     destination.mkdir(parents=True, exist_ok=True)
-    roots = [".skill-pilot", ".codex/skills", ".agents/skills", ".claude/skills", ".gemini/config/skills", ".dsh/skills",
-             "Developer/vendor/stop-that-shit-local/skills/stss", *EXTRA_SOURCES, ".agents/.skill-lock.json"]
+    catalog = profiles.all_profiles(source)
+    skill_roots = {r for p in catalog for r in p['skill_roots']}
+    skill_roots.update(str(p.relative_to(source)) for p in source.glob('.*/skills') if p.is_dir() and
+                       not any(p.is_relative_to(source / r) for r in profiles.readonly_roots(source)))
+    roots = ['.skill-pilot', *sorted(skill_roots),
+             'Developer/vendor/stop-that-shit-local/skills/stss', *EXTRA_SOURCES, '.agents/.skill-lock.json']
     copied, dependencies = set(), []
     def copy(relative):
         src, dst = source / relative, destination / relative
@@ -74,26 +79,13 @@ def make_fake_home(source, destination):
         for relative in sorted(set(pending)):
             dependencies.append(relative)
             copy(relative)
-    config = source / ".codex/config.toml"
-    if config.exists():
-        original = tomllib.loads(config.read_text()).get("skills", {})
-        # The current skills table contains only config; reject new syntax rather
-        # than copying unrelated configuration or silently dropping settings.
-        if set(original) - {"config"}:
-            raise ValueError("技能设置出现新格式，需核对后才能复制。")
-        rows = []
-        for entry in original.get("config", []):
-            fields = []
-            for key, value in entry.items():
-                if key == "path" and isinstance(value, str) and value.startswith(str(source) + "/"):
-                    value = str(destination / Path(value).relative_to(source))
-                fields.append(key + " = " + (str(value).lower() if isinstance(value, bool) else json.dumps(value, ensure_ascii=False)))
-            rows.append("{ " + ", ".join(fields) + " }")
-        path = guard(destination / ".codex/config.toml", destination)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("[skills]\nconfig = [" + ", ".join(rows) + "]\n")
-    # Simulate detection of DSH without copying its private sessions.
-    guard(destination / ".dsh", destination).mkdir(exist_ok=True)
+    for profile in catalog:
+        if profile['disable']:
+            profiles.adapter(profile).copy_skills_config(source, destination, lambda p: guard(p, destination))
+        # Simulate installation evidence without copying private sessions.
+        for relative in profile['detect']['config_dirs']:
+            if (source / relative).is_dir():
+                guard(destination / relative, destination).mkdir(parents=True, exist_ok=True)
     package = source / ".local/lib/node_modules/@larksuite/cli/package.json"
     fixture = {"lark_cli_version": json.loads(package.read_text()).get("version") if package.is_file() else None}
     guard(destination / ".skill-pilot-fixture.json", destination).write_text(json.dumps(fixture) + "\n")

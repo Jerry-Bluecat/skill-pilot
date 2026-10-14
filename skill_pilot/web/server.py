@@ -20,6 +20,7 @@ from pathlib import Path
 from ..scan import scan
 from ..store import SKIP_CONTENT, apply, backups, guard, preview, restore, target_home
 from .. import operations, updates, usage, cleanup, labels
+from .. import agents as agent_management
 from ..sources import github
 
 STATIC = Path(__file__).parent / "static"
@@ -126,9 +127,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(200,result)
             except (ValueError,OSError,KeyError,sqlite3.Error) as error:
                 self.reply(409,{'error':('正在统计，完成后再生成名单。' if path == '/api/cleanup' else '用量暂时读不到，技能分配仍可照常操作。') if isinstance(error,sqlite3.Error) else str(error), 'retry':getattr(error,'sqlite_errorcode',None) in (sqlite3.SQLITE_BUSY,sqlite3.SQLITE_LOCKED)})
-        elif path in ('/api/table', '/api/log'):
+        elif path in ('/api/table', '/api/log', '/api/agents'):
             try:
-                result = operations.table(self.server.home,self.server.usage_database) if path == '/api/table' else operations.history(self.server.home)
+                result = (operations.table(self.server.home,self.server.usage_database) if path == '/api/table' else
+                          agent_management.overview(self.server.home) if path == '/api/agents' else operations.history(self.server.home))
                 self.reply(200, result)
             except (ValueError, OSError, KeyError) as error:
                 self.reply(409, {'error': str(error)})
@@ -179,9 +181,11 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, {"ok": True})
             return
         read_routes = {'/api/assignment/preview', '/api/install/inspect', '/api/incoming/compare',
-                       '/api/updates/check', '/api/updates/explain', '/api/updates/merge', '/api/updates/calibrate'}
+                       '/api/updates/check', '/api/updates/explain', '/api/updates/merge', '/api/updates/calibrate',
+                       '/api/agents/join/preview', '/api/agents/leave/preview', '/api/agents/ignore/preview'}
         write_routes = {'/api/assignment/apply', '/api/dependencies', '/api/install/apply', '/api/absorb', '/api/undo',
-                        '/api/updates/apply','/api/cleanup/apply','/api/withdrawn/restore'}
+                        '/api/updates/apply','/api/cleanup/apply','/api/withdrawn/restore',
+                        '/api/agents/join/apply', '/api/agents/leave/apply', '/api/agents/ignore/apply'}
         settings_routes = {'/api/settings/llm', '/api/settings/llm/test', '/api/labels/run'}
         if path not in {"/api/migration/apply", "/api/restore"} | read_routes | write_routes | settings_routes:
             self.reply(405, {"error": "当前阶段没有这个操作。"})
@@ -240,6 +244,13 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/assignment/preview':
                 self.reply(200, operations.preview_assign(body['changes'], self.server.home))
                 return
+            if path == '/api/agents/join/preview':
+                self.reply(200, agent_management.preview_join(body['agents'], self.server.home))
+                return
+            if path in {'/api/agents/leave/preview', '/api/agents/ignore/preview'}:
+                action = agent_management.preview_leave if path.endswith('leave/preview') else agent_management.preview_ignore
+                self.reply(200, agent_management.public(action(body['agent'], self.server.home)))
+                return
             if path == '/api/install/inspect':
                 review = github.inspect(body['url'])
                 self.server.install_reviews[review['id']] = review
@@ -264,6 +275,8 @@ class Handler(BaseHTTPRequestHandler):
             if not preview_allowed(self.server.home):
                 self.reply(403, {"error": "当前处于只读模式，文件没有改动。"})
                 return
+            if path in {'/api/agents/join/apply', '/api/agents/leave/apply', '/api/agents/ignore/apply'} and (not isinstance(body.get('revision'), str) or not body['revision']):
+                raise ValueError('请先读取当前状态，再确认这次操作。')
             if path == "/api/migration/apply":
                 result = apply(body["plan_id"], self.server.home, body["agents"], body.get("choices"), body.get("sources"))
                 operations.bootstrap(self.server.home)
@@ -271,6 +284,12 @@ class Handler(BaseHTTPRequestHandler):
                 result = restore(body["backup_id"], self.server.home)
             elif path == '/api/assignment/apply':
                 result = operations.apply_assign(body['changes'], body['revision'], True, self.server.home)
+            elif path == '/api/agents/join/apply':
+                result = agent_management.join(body['agents'], body['plan_id'], body['revision'], body.get('choices'), self.server.home)
+            elif path == '/api/agents/leave/apply':
+                result = agent_management.leave(body['agent'], body['plan_id'], body['revision'], self.server.home)
+            elif path == '/api/agents/ignore/apply':
+                result = agent_management.ignore(body['agent'], body['plan_id'], body['revision'], self.server.home)
             elif path == '/api/dependencies':
                 result = operations.decide_dependencies(body['decisions'], body['revision'], self.server.home)
             elif path == '/api/install/apply':

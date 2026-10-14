@@ -1,0 +1,210 @@
+{
+  "profiles": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "skill_roots": [
+        ".agents/skills",
+        ".codex/skills"
+      ],
+      "readonly_roots": [
+        [
+          ".codex/skills/.system",
+          "builtin"
+        ],
+        [
+          ".codex/plugins/cache",
+          "plugin_cache"
+        ],
+        [
+          ".codex/plugins/user",
+          "plugin"
+        ],
+        [
+          ".codex/vendor_imports",
+          "vendor"
+        ]
+      ],
+      "visibility_note": "已扣除停用项及仅限手动调用项；内置、插件和候选库另列，其安装存在不代表已在本次会话启用。",
+      "detect": {
+        "config_dirs": [
+          ".codex"
+        ],
+        "apps": [
+          "ChatGPT.app",
+          "Codex.app"
+        ],
+        "cli": "codex"
+      },
+      "link_root": ".codex/skills",
+      "nested": true,
+      "manual_only": [
+        "disable-model-invocation",
+        "agents/openai.yaml"
+      ],
+      "disable": "codex_config",
+      "disable_note": "config.toml 中按名称或文件位置停用",
+      "activation": "new_session",
+      "activation_note": "新会话生效",
+      "usage": {
+        "reader": "codex",
+        "roots": [
+          ".codex/sessions",
+          ".codex/archived_sessions"
+        ]
+      },
+      "usage_note": "会话文件中的实际工具调用"
+    },
+    {
+      "id": "claude",
+      "name": "Claude",
+      "skill_roots": [
+        ".claude/skills"
+      ],
+      "readonly_roots": [
+        [
+          ".claude/plugins",
+          "plugin_cache"
+        ],
+        [
+          ".claude/skills/synced",
+          "builtin"
+        ]
+      ],
+      "visibility_note": "按用户技能目录盘点；插件和桌面同步技能另列。",
+      "detect": {
+        "config_dirs": [
+          ".claude"
+        ],
+        "apps": [
+          "Claude.app"
+        ],
+        "cli": "claude"
+      },
+      "link_root": ".claude/skills",
+      "nested": true,
+      "manual_only": [],
+      "disable": null,
+      "disable_note": "本轮未验证",
+      "activation": "immediate",
+      "activation_note": "目录改变后会动态刷新",
+      "usage": {
+        "reader": "claude",
+        "roots": [
+          ".claude/projects"
+        ]
+      },
+      "usage_note": "会话文件中的技能调用或读取"
+    },
+    {
+      "id": "antigravity",
+      "name": "Antigravity",
+      "skill_roots": [
+        ".gemini/config/skills"
+      ],
+      "readonly_roots": [
+        [
+          ".gemini/antigravity/builtin/skills",
+          "builtin"
+        ],
+        [
+          ".gemini/antigravity-cli/builtin/skills",
+          "builtin"
+        ],
+        [
+          ".gemini/config/plugins",
+          "plugin"
+        ]
+      ],
+      "visibility_note": "按用户技能目录盘点；内置和插件另列。",
+      "detect": {
+        "config_dirs": [
+          ".gemini/config",
+          ".gemini/antigravity"
+        ],
+        "apps": [
+          "Antigravity.app"
+        ],
+        "cli": "agy"
+      },
+      "link_root": ".gemini/config/skills",
+      "nested": true,
+      "manual_only": [],
+      "disable": null,
+      "disable_note": "本轮未验证",
+      "activation": "new_session",
+      "activation_note": "新会话核验",
+      "usage": null,
+      "usage_note": "统计不到用量：还没找到读取它使用记录的办法。",
+      "usage_reason": "统计不到用量：还没找到读取它使用记录的办法。"
+    },
+    {
+      "id": "dsh",
+      "name": "DSH",
+      "skill_roots": [
+        ".dsh/skills",
+        ".agents/skills"
+      ],
+      "readonly_roots": [],
+      "visibility_note": "按默认用户根盘点；共享目录和外部链接已经真实探针验证。",
+      "detect": {
+        "config_dirs": [
+          ".dsh"
+        ],
+        "apps": [
+          "DeepSeek Harness.app"
+        ],
+        "cli": "dsh"
+      },
+      "link_root": ".agents/skills",
+      "nested": false,
+      "manual_only": [
+        "disable-model-invocation"
+      ],
+      "disable": null,
+      "disable_note": "技能正文可限制自动调用；独立停用名单未验证",
+      "activation": "immediate",
+      "activation_note": "目录改变后会动态刷新",
+      "usage": {
+        "reader": "dsh",
+        "roots": [
+          ".dsh/sessions"
+        ]
+      },
+      "usage_note": "会话格式已验证，v3/v4 按会话去重；实际覆盖见用量页"
+    }
+  ],
+  "default_ignored": [
+    "kimi"
+  ],
+  "discovery_names": {
+    ".workbuddy": "WorkBuddy",
+    ".cursor": "Cursor",
+    ".trae": "Trae",
+    "kimi-desktop": "Kimi",
+    ".kimi": "Kimi",
+    ".kimi-code": "Kimi"
+  },
+  "classified_roots": [
+    [
+      ".cursor/skills-cursor",
+      "builtin"
+    ],
+    [
+      ".trae/builtin",
+      "builtin"
+    ],
+    [
+      "Library/Application Support/kimi-desktop",
+      "ignored"
+    ],
+    [
+      ".kimi",
+      "ignored"
+    ],
+    [
+      ".kimi-code",
+      "ignored"
+    ]
+  ]
+}

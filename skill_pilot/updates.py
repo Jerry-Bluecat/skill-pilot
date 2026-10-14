@@ -10,8 +10,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import operations, research, normalization
-from .scan import SKIP_CONTENT, metadata, read_disabled, is_disabled
+from . import operations, research, normalization, profiles
+from .scan import SKIP_CONTENT, metadata, is_disabled
 from .sources import normalize, lark
 from .sources.update_github import Reader, files
 from .store import git_tree, physical_state
@@ -56,9 +56,9 @@ REPOSITORY_TIMEOUT = 60
 
 def skill_state(home, name, skill):
     local = home / '.skill-pilot/store' / name
-    disabled = read_disabled(home / '.codex/config.toml', home)
-    state = [skill, git_tree(local), physical_state(home / '.skill-pilot/bases' / name), disabled['error'],
-             is_disabled({'name': name, 'path': str(local)}, disabled),
+    disabled = profiles.disabled(home)
+    state = [skill, git_tree(local), physical_state(home / '.skill-pilot/bases' / name),
+             {a: [data['error'], is_disabled({'name': name, 'path': str(local)}, data)] for a, data in disabled.items()},
              {p: physical_state(home / p) for p in skill.get('entries', [])}]
     return hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
 

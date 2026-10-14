@@ -1,5 +1,6 @@
 """Incremental, durable, session-deduplicated usage ledger."""
 import hashlib
+import importlib
 import json
 import re
 import sqlite3
@@ -8,14 +9,12 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import claude, codex, dsh, antigravity
 from .common import Names, timestamp
-from .. import operations
+from .. import operations, profiles
 from ..store import PROJECT, guard, write_allowed
 
-PARSERS = {'claude': claude, 'codex': codex, 'dsh': dsh}
-SOURCES = {'claude': ['.claude/projects'], 'codex': ['.codex/sessions', '.codex/archived_sessions'],
-           'dsh': ['.dsh/sessions']}
+def reader(profile):
+    return importlib.import_module(__name__ + '.' + profile['usage']['reader']) if profile['usage'] else None
 
 
 class Ledger:
@@ -57,6 +56,7 @@ class Ledger:
         return prefix, anchor
 
     def scan(self, path, agent, names):
+        parser = reader(profiles.by_id(names.home)[agent])
         info = path.stat()
         inode = str((info.st_dev,info.st_ino))
         saved = self.db.execute('SELECT * FROM scans WHERE path=?', (str(path),)).fetchone()
@@ -69,7 +69,7 @@ class Ledger:
         if saved and (saved['inode'] != inode or info.st_size < offset or saved['anchor'] != anchor or
                       (saved['size'] >= 512 and saved['prefix'] != prefix)):
             offset = 0
-        session = saved['session'] if saved and offset else path.parent.name if agent == 'dsh' else path.stem
+        session = saved['session'] if saved and offset else parser.session_name(path)
         first, last = (saved['first_seen'], saved['last_seen']) if saved and offset else (None,None)
         error, processed = None, 0
         def observe(date):
@@ -78,8 +78,8 @@ class Ledger:
                 first = min(first,date) if first else date
                 last = max(last,date) if last else date
         try:
-            if agent == 'dsh':
-                decoded = dsh.decode(path,offset,names.evidence_aliases)
+            if hasattr(parser, 'decode'):
+                decoded = parser.decode(path,offset,names.evidence_aliases)
                 observe(timestamp(decoded['first'])); observe(timestamp(decoded['last']))
                 for hint in decoded['hints']:
                     for name in names.paths(' '.join(hint['paths'])):
@@ -87,7 +87,7 @@ class Ledger:
                     for name in hint.get('names',[]):
                         self.appearance(name,timestamp(hint['time']))
                 for row in decoded['rows']:
-                    session, found = dsh.parse(row,names,session)
+                    session, found = parser.parse(row,names,session)
                     for name in found:
                         self.call(agent,session,name,timestamp(row.get('time')))
                 processed = decoded['offset']-offset
@@ -106,10 +106,10 @@ class Ledger:
                         date = timestamp(match[1].decode()) if match else None
                         observe(date)
                         mentioned = names.mentions(line)
-                        if not mentioned and b'SKILL.md' not in line and b'"Skill"' not in line and b'"session_meta"' not in line and not (agent == 'claude' and b'"user"' in line[:300]):
+                        if not parser.relevant(line, mentioned):
                             continue
                         row = json.loads(line)
-                        session, found = PARSERS[agent].parse(row,names,session)
+                        session, found = parser.parse(row,names,session)
                         date = timestamp(row.get('timestamp')) or date
                         observe(date)
                         for name in mentioned:
@@ -151,6 +151,8 @@ def recorded(database):
 
 def report(home=None, database=None, now=None, progress=None):
     home, registry, agents = operations.load(home)
+    catalog = profiles.by_id(home)
+    parsers = {a: reader(catalog[a]) for a in agents}
     if database is None and not write_allowed(home):
         with tempfile.TemporaryDirectory(prefix='skill-pilot-usage-preview-') as temporary:
             return report(home,Path(temporary)/'usage.sqlite',now,progress)
@@ -172,14 +174,15 @@ def report(home=None, database=None, now=None, progress=None):
             ledger.db.execute('DELETE FROM scans')
         ledger.db.execute('INSERT OR REPLACE INTO settings VALUES("mapping",?)',(identity,))
         ledger.db.execute('INSERT OR REPLACE INTO settings VALUES("complete","0")'); ledger.db.commit()
-        files = {a: sorted({p for r in SOURCES.get(a,[]) for p in (home/r).rglob('session.v[34].jsonl.zstd' if a == 'dsh' else '*.jsonl')}) for a in agents}
+        files = {a: sorted({p for r in (catalog[a]['usage'] or {}).get('roots', [])
+                            for p in (home/r).rglob(parsers[a].FILE_GLOB)}) for a in agents}
         progress.update(running=True,done=0,total=sum(map(len,files.values())))
         coverage, bytes_read = {}, 0
         now = now or datetime.now(timezone.utc)
         cutoff = (now-timedelta(days=30)).isoformat()
         for agent in agents:
-            if agent not in SOURCES:
-                coverage[agent] = {'available':False,'message':antigravity.REASON,'files':0,'earliest':None,'latest':None,'errors':[]}
+            if parsers[agent] is None:
+                coverage[agent] = {'available':False,'message':catalog[agent]['usage_reason'],'files':0,'earliest':None,'latest':None,'errors':[]}
                 continue
             paths = files[agent]
             errors = []
@@ -193,7 +196,7 @@ def report(home=None, database=None, now=None, progress=None):
             earliest = min((r['first_seen'] for r in current if r and r['first_seen']),default=None)
             latest = max((r['last_seen'] for r in current if r and r['last_seen']),default=None)
             available = bool(paths) and not errors
-            label = 'Claude 的记录只保留最近 30 天' if agent == 'claude' else ('DSH 已可统计，v3/v4 按会话去重' if agent == 'dsh' else 'Codex 含归档记录')
+            label = parsers[agent].COVERAGE_NOTE
             message = label+('，最早到 '+earliest[:10] if earliest else '，没有可读取的记录')
             if errors:
                 message += '；有记录未读完整，统计不到'

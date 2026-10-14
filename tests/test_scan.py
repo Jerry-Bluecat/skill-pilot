@@ -155,7 +155,7 @@ class InventoryTests(unittest.TestCase):
         self.skill(".codex/skills/example", "example")
         (self.home / ".codex/config.toml").write_text("[skills\n")
         data = scan(self.home, [])
-        self.assertIsNotNone(data["codex_disabled"]["error"])
+        self.assertIsNotNone(data['disabled']['codex']["error"])
         self.assertIsNone(data["agents"][0]["visible_skill_count"])
 
     def test_manual_only_skills_do_not_inflate_model_description_count(self):

@@ -145,11 +145,13 @@ dl, dd, dt { margin: 0; }
 .nav-quiet { color: var(--muted); font-size: var(--fs-small); }
 .nav-quiet[aria-current="page"] { color: var(--ink); }
 
-/* 四助手摘要：固定 4 列，每格两行（第二行固定预留，勾选前后高度不变）。 */
+/* agent 摘要：几格看有几个 agent，每格最小宽度够放两行；1 到 8 个都自己换行。
+   数字不许被截断：格子不够宽时「名字 + N 个技能 · 说明 N 字」自己折到下一行。
+   第二行固定预留，勾选前后高度不变。 */
 .agent-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--sp-1) var(--sp-6);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--sp-1) var(--sp-4);
   max-width: 1440px;
   margin: var(--sp-2) auto 0;
 }
@@ -159,17 +161,17 @@ dl, dd, dt { margin: 0; }
   display: flex;
   align-items: baseline;
   gap: var(--sp-1);
+  flex-wrap: wrap;
   margin: 0;
   min-width: 0;
-  white-space: nowrap;
 }
-.agent-name { font-weight: 600; flex: none; }
+/* 名字放得下就不动；实在放不下时先缩名字（加省略号），保证数字和「字」始终完整。 */
+.agent-name { font-weight: 600; flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .agent-stats {
   font-size: var(--fs-small);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .agent-note {
   margin: 0;
@@ -522,8 +524,21 @@ table.grid thead th:first-child { z-index: 3; }
 .col-check { text-align: center; }
 .col-last { white-space: nowrap; font-variant-numeric: tabular-nums; }
 
-.cell-check { text-align: center; width: 96px; }
+/* agent 列：列数随 agent 数量变，列多时整页横向滚动，技能名一列固定在左边。 */
+.cell-check { text-align: center; width: 84px; min-width: 72px; }
+/* 还没应用的格子：安静的浅色底，一眼看出哪几格改了。 */
+.cell-check.cell-pending { background: var(--warn-bg); }
+table.grid tbody tr:hover td.cell-check.cell-pending { background: var(--warn-bg); }
 .cell-note { display: block; color: var(--muted); font-size: 11px; line-height: 1.4; margin-top: 2px; }
+.cell-mark {
+  display: block;
+  font-size: 11px;
+  line-height: 1.4;
+  margin-top: 2px;
+  color: var(--warn-ink);
+  font-variant-numeric: tabular-nums;
+}
+.cell-auto { color: var(--accent); }
 .cell-error { color: var(--danger-ink); }
 
 .skill-line { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
@@ -538,7 +553,7 @@ table.grid thead th:first-child { z-index: 3; }
 }
 
 tr[data-skill-row] { cursor: pointer; }
-/* 组内的技能往里缩一点，和组名对齐；没分给任何助手的名字调淡。 */
+/* 组内的技能往里缩一点，和组名对齐；没分给任何 agent 的名字调淡。 */
 tr[data-skill-row] td.col-name { padding-left: calc(var(--sp-3) + 18px); }
 tr.is-idle .skill-line strong { color: var(--muted); font-weight: 500; }
 
@@ -625,7 +640,7 @@ table.grid tbody tr.group-row:hover td { background: var(--bg); }
 .dep-list li { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) 0; }
 .dep-list li span { flex: 1; overflow-wrap: anywhere; }
 
-/* 各助手里的入口：上下排列，一行路径一行状态。 */
+/* 各 agent 里的入口：上下排列，一行路径一行状态。 */
 .entry-list li { padding: var(--sp-2) 0; border-bottom: 1px solid var(--line); }
 .entry-list li:last-child { border-bottom: 0; }
 .entry-path {
@@ -794,7 +809,11 @@ body.has-action-bar .toasts { bottom: 96px; }
 .dialog-body .confirm-line { margin: var(--sp-1) 0; overflow-wrap: anywhere; }
 .dialog-body .confirm-note { color: var(--muted); font-size: var(--fs-small); }
 
-/* 确认框里的明细：按助手分组，超过 8 个折叠。 */
+/* 接入核对框：每个要选的技能一行，路径用等宽小字。 */
+.join-choice { margin: var(--sp-2) 0; }
+.join-option { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; margin: var(--sp-1) 0; }
+
+/* 确认框里的明细：按 agent 分组，超过 8 个折叠。 */
 .confirm-group { margin: var(--sp-3) 0 0; }
 .confirm-group-title { margin: 0 0 var(--sp-1); font-size: var(--fs-small); color: var(--muted); }
 .confirm-items { margin: 0; padding: 0; list-style: none; }
@@ -831,8 +850,8 @@ body.has-action-bar .toasts { bottom: 96px; }
   .topbar, .page, .footer, .action-bar { padding-left: var(--sp-4); padding-right: var(--sp-4); }
   .col-name { min-width: 220px; }
   .skill-desc { max-width: 30ch; }
-  /* 两行两列，每个助手仍然是固定的两行文字。 */
-  .agent-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* 窄屏最少两列；只有一个 agent 时还是一格。 */
+  .agent-summary { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
 }
 
 /* 窗口不够宽时省掉「说明」两个字，数字和「字」都留着，读起来不含糊。 */

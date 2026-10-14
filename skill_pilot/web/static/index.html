@@ -13,7 +13,7 @@
   <div class="topbar-row">
     <div class="brand">
       <h1>Skill Pilot</h1>
-      <p class="brand-note">本机四个助手的技能，都在这里管</p>
+      <p id="brand-note" class="brand-note">本机各 agent 的技能，都在这里管</p>
     </div>
     <nav class="nav" aria-label="主导航">
       <button class="nav-item" data-page="skills" aria-current="page">技能</button>
@@ -26,7 +26,7 @@
     <span id="mode-badge" class="tag tag-quiet">正在读取</span>
   </div>
 
-  <div id="agent-summary" class="agent-summary" aria-label="各助手技能概况"></div>
+  <div id="agent-summary" class="agent-summary" aria-label="各 agent 技能概况"></div>
 
   <div id="task-bar" class="task-bar" role="status" aria-live="polite" hidden></div>
 
@@ -50,11 +50,20 @@
       <div id="new-list" class="banner-list" hidden></div>
     </div>
 
+    <div id="agent-banner" class="banner banner-info" hidden>
+      <div class="banner-row">
+        <span id="agent-text"></span>
+        <span class="banner-actions">
+          <button id="agent-look" class="btn btn-small">去看看</button>
+        </span>
+      </div>
+    </div>
+
     <div class="toolbar">
       <input id="skills-search" type="search" class="input input-search" placeholder="搜索技能名称或说明" aria-label="搜索技能名称或说明">
       <div id="skills-filters" class="segmented" role="group" aria-label="筛选技能">
         <button class="seg" data-filter="all" aria-pressed="true">全部</button>
-        <button class="seg" data-filter="unassigned" aria-pressed="false">没分配给任何助手</button>
+        <button class="seg" data-filter="unassigned" aria-pressed="false">没分配给任何 agent</button>
         <button class="seg" data-filter="stale" aria-pressed="false">很久没用</button>
         <button class="seg" data-filter="modified" aria-pressed="false">你改过</button>
         <button class="seg" data-filter="dependency" aria-pressed="false">有依赖</button>
@@ -95,7 +104,7 @@
   <!-- ========== 清理页 ========== -->
   <section id="page-cleanup" class="page-section" hidden>
     <div id="cleanup-savings" class="savings"></div>
-    <p class="muted">名单默认全选。取消勾选要留的，视为今天用过，60 天后才会再出现。清理只从助手撤下，文件留在仓库。</p>
+    <p class="muted">名单默认全选。取消勾选要留的，视为今天用过，60 天后才会再出现。清理只从 agent 撤下，文件留在仓库。</p>
     <p id="cleanup-status" class="muted" role="status"></p>
     <div class="table-wrap table-wrap-mid">
       <table class="grid">
@@ -113,7 +122,7 @@
     </div>
 
     <h2 class="section-title">已撤下的技能</h2>
-    <p class="muted">文件仍在仓库里。恢复会重新分配给原来的助手，可以撤销。</p>
+    <p class="muted">文件仍在仓库里。恢复会重新分配给原来的 agent，可以撤销。</p>
     <p class="row-wrap">
       <button id="withdrawn-refresh" class="btn btn-small">刷新列表</button>
       <button id="withdrawn-check" class="btn btn-small">检查已撤下技能的更新</button>
@@ -139,7 +148,7 @@
     </details>
 
     <details class="fold" id="diag-inventory-box">
-      <summary>助手与目录</summary>
+      <summary>agent 与目录</summary>
       <div class="toolbar">
         <input id="inventory-search" type="search" class="input input-search" placeholder="搜索技能名称或说明" aria-label="搜索技能">
         <label class="check"><input id="include-readonly" type="checkbox"> 同时看内置和插件</label>
@@ -165,7 +174,7 @@
           <tbody id="root-list"></tbody>
         </table>
       </div>
-      <h3 class="sub-title">助手</h3>
+      <h3 class="sub-title">agent</h3>
       <div id="agent-list" class="list"></div>
     </details>
 
@@ -180,10 +189,14 @@
       <p id="migration-mode" class="muted"></p>
       <div id="migration-error" class="banner banner-warn" role="alert" hidden></div>
 
-      <div id="migration-select">
-        <h3 class="sub-title">1. 选择要接入的助手</h3>
+      <div id="migration-done" class="fold-note" hidden>
+        <p id="migration-done-text">已经完成首次迁移；以后接入新 agent，请到设置里的 agent 一栏。</p>
+      </div>
+
+      <div id="migration-select" hidden>
+        <h3 class="sub-title">1. 选择要接入的 agent</h3>
         <div id="migration-agents" class="row-wrap"></div>
-        <p class="muted">Codex 和 DSH 共用一个技能目录，本次一起接入。其他助手可以单独选择。</p>
+        <p id="migration-groups" class="muted"></p>
         <button id="migration-preview" class="btn">下一步：核对版本</button>
       </div>
 
@@ -202,7 +215,7 @@
           <div id="migration-skipped"></div>
         </details>
         <p class="row-wrap">
-          <button id="migration-back" class="btn">返回选择助手</button>
+          <button id="migration-back" class="btn">返回选择 agent</button>
           <button id="migration-apply" class="btn btn-primary">确认迁移</button>
         </p>
       </div>
@@ -221,6 +234,19 @@
     </details>
   </section>
   <section id="page-settings" class="page-section" hidden>
+    <h2 class="section-title">agent</h2>
+    <p id="agents-empty" class="muted" hidden>还没完成首次迁移。去「诊断与备份」的“迁移与还原”完成后，这里会列出正在管理的 agent。</p>
+    <p class="row-wrap" id="agents-empty-link" hidden><button id="agents-migration-link" class="link-btn">去迁移与还原</button></p>
+    <div id="agents-managed" class="list"></div>
+    <div id="agents-suggested-box" hidden>
+      <h3 class="sub-title">发现的新 agent</h3>
+      <div id="agents-suggested" class="list"></div>
+    </div>
+    <div id="agents-ignored-box" hidden>
+      <h3 class="sub-title">没在管理的 agent</h3>
+      <div id="agents-ignored" class="list"></div>
+    </div>
+
     <h2 class="section-title">AI 服务</h2>
     <form id="llm-form" class="settings-form">
       <label for="llm-provider">服务商</label>
@@ -279,6 +305,24 @@
   </form>
 </dialog>
 
+<dialog id="agents-join-dialog" class="dialog dialog-wide">
+  <form method="dialog" class="dialog-form">
+    <h2>接入新 agent</h2>
+    <p id="join-summary" class="muted"></p>
+    <div id="join-counts" class="list"></div>
+    <div id="join-choices"></div>
+    <div id="join-skipped-box" hidden>
+      <h3 class="sub-title">这些内容会原样留着</h3>
+      <div id="join-skipped"></div>
+    </div>
+    <p id="join-message" class="muted" role="status"></p>
+    <div class="dialog-actions">
+      <button id="join-close" type="button" class="btn">关闭</button>
+      <button id="join-apply" type="button" class="btn btn-primary">接入</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="install-dialog" class="dialog dialog-wide">
   <form method="dialog" class="dialog-form">
     <h2>安装技能</h2>
@@ -289,7 +333,7 @@
     </div>
     <p id="install-message" role="status"></p>
     <div id="install-skills" class="list"></div>
-    <h3 class="sub-title">给哪些助手使用</h3>
+    <h3 class="sub-title">给哪些 agent 使用</h3>
     <p class="muted">默认不分配；也可以安装后再在技能页里勾选。</p>
     <div id="install-agents" class="row-wrap"></div>
     <div id="incoming-conflicts" hidden>

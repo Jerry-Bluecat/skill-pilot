@@ -12,7 +12,7 @@ from . import operations
 def main():
     parser = argparse.ArgumentParser(description="Skill Pilot：本机技能管理")
     commands = parser.add_subparsers(dest="command", required=True)
-    inventory = commands.add_parser("scan", help="盘点本机助手和技能")
+    inventory = commands.add_parser("scan", help="盘点本机 agent 和技能")
     inventory.add_argument("--json", action="store_true", help="输出完整机器可读结果")
     commands.add_parser("ui", help="打开中文看板").add_argument('--json', action='store_true')
     migrate = commands.add_parser("migrate", help="预览迁移或在模拟目录确认执行")
@@ -20,7 +20,7 @@ def main():
     mode.add_argument("--plan", action="store_true", help="只读生成迁移预览")
     mode.add_argument("--apply", action="store_true", help="确认执行已核对的预览")
     migrate.add_argument("--plan-id")
-    migrate.add_argument("--agents", nargs="+", help="要接入的助手，默认四个主力")
+    migrate.add_argument("--agents", nargs="+", help="要接入的 agent，默认内置档案中的 agent")
     migrate.add_argument("--choices", help="核对结果文件：choices 与 sources 两个对象")
     migrate.add_argument("--json", action="store_true")
     saved = commands.add_parser("backups", help="查看迁移前备份")
@@ -178,7 +178,7 @@ def main():
                 data = operations.table()
                 if args.command == 'list':
                     if args.agent not in {a['id'] for a in data['agents']}:
-                        raise ValueError('这个助手还没有接入。')
+                        raise ValueError('这个 agent 还没有接入。')
                     data = {'agent': args.agent, 'skills': [s for s in data['skills'] if args.agent in s['assigned_agents']]}
             elif args.command in {'assign', 'unassign'}:
                 data = operations.apply_assign([{'skill': args.skill, 'agent': args.agent,
@@ -268,7 +268,7 @@ def main():
                 print(json.dumps(data, ensure_ascii=False, indent=2))
             elif args.command == "migrate" and args.plan:
                 print(f"迁移预览：{len(data['skills'])} 个技能，{len(data['conflicts'])} 组版本差异。")
-                print("要接入的助手：" + "、".join(data["agents"]))
+                print("要接入的 agent：" + "、".join(data["agents"]))
                 for skill in data["conflicts"]:
                     option = next(o for o in skill["options"] if o["id"] == skill["default"])
                     print(f"{skill['name']}：{option['path']}；{skill['reason']}")

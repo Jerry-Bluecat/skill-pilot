@@ -3,8 +3,7 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-
-PATHS = re.compile(r'\.(?:codex/skills|agents/skills|claude/skills|gemini/config/skills|dsh/skills|skill-pilot/store)/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*/SKILL\.md|Developer/vendor/stop-that-shit-local/skills/stss/SKILL\.md')
+from .. import profiles
 
 
 def timestamp(value):
@@ -30,6 +29,12 @@ class Names:
                     self.entries[entry] = skill['name']
                     self.aliases[Path(entry).name] = skill['name']
         self.home = str(home)
+        self.roots = {r + '/': any(p['nested'] for p in profiles.all_profiles(home) if r in p['skill_roots'])
+                      for r in {r for p in profiles.all_profiles(home) for r in p['skill_roots']}}
+        self.roots['.skill-pilot/store/'] = False
+        self.readonly = profiles.readonly_roots(home)
+        self.path_pattern = re.compile('(?:' + '|'.join(re.escape(r) for r in self.roots) +
+                                       r')[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*/SKILL\.md|Developer/vendor/stop-that-shit-local/skills/stss/SKILL\.md')
         self.evidence_aliases = {}
         self.evidence_pattern = None
 
@@ -49,21 +54,22 @@ class Names:
         if not value.endswith('/SKILL.md'):
             return None
         directory = value[:-len('/SKILL.md')]
-        for root in ('.codex/skills/', '.agents/skills/', '.claude/skills/', '.gemini/config/skills/',
-                     '.dsh/skills/', '.skill-pilot/store/'):
+        for root, nested in self.roots.items():
             if root in directory:
                 tail = directory.split(root, 1)[1]
                 entry = root + tail
+                if any(Path(entry).is_relative_to(r) for r in self.readonly):
+                    return None
                 if entry in self.entries:
                     return self.entries[entry]
-                if '/' not in tail or (root == '.codex/skills/' and tail.startswith('community/') and tail.count('/') == 1):
+                if '/' not in tail or nested:
                     return self.name(Path(tail).name)
         if directory.endswith('Developer/vendor/stop-that-shit-local/skills/stss'):
             return self.name('stss')
         return None
 
     def paths(self, text):
-        return {name for p in PATHS.findall(str(text)) if (name := self.path(p))}
+        return {name for p in self.path_pattern.findall(str(text)) if (name := self.path(p))}
 
 
 def arguments(value):
