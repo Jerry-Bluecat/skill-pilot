@@ -207,7 +207,7 @@ class Handler(BaseHTTPRequestHandler):
                         for old in self.server.update_reviews.values():
                             shutil.rmtree(old['temporary'], ignore_errors=True)
                         self.server.update_reviews.clear()
-                        review = updates.create(self.server.home, body.get('withdrawn', False))
+                        review = updates.create(self.server.home)
                         self.server.update_reviews[review['id']] = review
                         self.server.update_thread = threading.Thread(target=updates.check, kwargs={'review': review, 'lock': self.server.update_lock}, daemon=True)
                         self.server.update_thread.start()

@@ -328,7 +328,7 @@ class GenericAgentTests(unittest.TestCase):
         table = operations.table(self.home)
         reference = operations.assignment_plan(registry, ids, changes)
         expected_after = {a: {'count': sum(a in s['assigned_agents'] for s in reference['registry']['skills'].values()),
-                              'description_chars': sum(s['description_chars'] for s in table['skills'] if a in reference['registry']['skills'][s['name']]['assigned_agents'])} for a in ids}
+                              'description_tokens': sum(s['description_tokens'] for s in table['skills'] if a in reference['registry']['skills'][s['name']]['assigned_agents'])} for a in ids}
         with patch.object(operations, 'table', side_effect=AssertionError('table')), patch.object(operations, 'revision', side_effect=AssertionError('revision')), patch.object(operations, 'new_skills', side_effect=AssertionError('new_skills')), patch.object(operations.normalization, 'tree', side_effect=AssertionError('tree')):
             result = operations.preview_assign(changes, self.home)
         self.assertNotIn('revision', result)

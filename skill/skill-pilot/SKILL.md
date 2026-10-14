@@ -9,12 +9,12 @@ description: 管理本机各 agent 的技能，查看技能清单、打开看板
 
 - `skill-pilot status`
 - `skill-pilot list --agent claude`
-- `skill-pilot check-updates`（只检查和报告，不安装）
+- `skill-pilot check-updates`（只检查和报告，不安装；只查有 agent 在用且有上游来源的技能，自制的和已撤下的不查）
 - `skill-pilot cleanup --list`（只列已撤下的技能）
 - `skill-pilot cleanup <技能...>`（不带 `--yes` 只预览：会提示还要用它们的技能和受影响的文件，不撤下）
 - `skill-pilot ui`（打开看板；首次打开会自动安装本管理技能，记入操作记录，可撤销）
 
-看板不统计用量，没有“多久没用”的数据；用户问哪些技能不用时，只能列出各 agent 分到的技能和说明字数，由用户自己判断。
+看板不统计用量，没有“多久没用”的数据；用户问哪些技能不用时，只能列出各 agent 分到的技能和说明各占多少 Token（粗估），由用户自己判断。
 
 用户要求分配或撤下时，可以直接运行 `skill-pilot assign <技能> --agent <agent>` 或 `skill-pilot unassign <技能> --agent <agent>`。分配会一起带上已确认的依赖；如果命令要求核对影响，先把影响告诉用户，得到同意后带 `--yes` 重试。
 

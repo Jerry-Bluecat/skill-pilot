@@ -27,6 +27,7 @@
   --warn-bg: #FFF5D6;    --warn-ink: #6A4A00;
   --danger-bg: #FDECEA;  --danger-ink: #A8251B;
   --info-bg: #E8EEFB;    --info-ink: #24448F;
+  --info-line: #C9D6F3;  --info-hover: #D9E4FA;
 
   /* 间距 */
   --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px;
@@ -109,8 +110,90 @@ dl, dd, dt { margin: 0; }
 .page-section > .section-title:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 
 .sub-title { font-size: var(--fs-body); margin: var(--sp-6) 0 var(--sp-2); }
+.sub-title .ico { margin-right: 6px; vertical-align: -3px; }
 
-.foot-note { color: var(--muted); font-size: var(--fs-small); }
+/* 分节标题行：标题、说明图标、右边的按钮排成一行。 */
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: var(--sp-8) 0 var(--sp-2);
+  padding-top: var(--sp-6);
+  border-top: 1px solid var(--line);
+}
+.section-head h2 { font-size: var(--fs-section); }
+.section-head .btn { margin-left: auto; }
+
+/* ---------- 图标加几个字：小图标、说明图标、浮出的说明 ---------- */
+
+.ico {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
+  vertical-align: -3px;
+  pointer-events: none;
+}
+.ico-lg { width: 28px; height: 28px; }
+
+/* 一句很短的说明：图标在前，后面可以跟一个说明图标。 */
+.note-line, .page-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+  line-height: 1.5;
+}
+.page-note { display: inline-flex; margin: var(--sp-2) 0; }
+.footer .note-line { color: var(--muted); }
+
+/* 说明图标：鼠标移上去或用键盘 Tab 到它，旁边会浮出完整的说明。 */
+.hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  flex: none;
+  vertical-align: middle;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  border-radius: 50%;
+  cursor: help;
+  transition: background-color var(--speed) var(--ease), color var(--speed) var(--ease);
+}
+.hint:hover, .hint:focus-visible { color: var(--ink); background: var(--panel-deep); }
+.sub-title .hint { margin-left: 2px; }
+
+/* 共用的浮层：用 popover 放到最上层，列表、面板、对话框里都不会被切掉。 */
+#tip {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: max-content;
+  max-width: min(300px, calc(100vw - 16px));
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--shell);
+  color: var(--shell-ink);
+  box-shadow: var(--shadow-2);
+  font-size: var(--fs-small);
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: left;
+  overflow: visible;
+  pointer-events: none;
+  z-index: var(--z-toast);
+}
 
 /* ---------- 页头：深色一行，下面是浅色的任务条 ---------- */
 
@@ -121,7 +204,8 @@ dl, dd, dt { margin: 0; }
   align-items: center;
   gap: var(--sp-6);
   min-height: 60px;
-  padding: 0 var(--sp-6);
+  /* 大屏上内容最宽 1440px 居中，页头跟它左右对齐 */
+  padding: 0 max(var(--sp-6), calc((100% - 1440px) / 2 + var(--sp-6)));
   background: var(--shell);
   color: var(--shell-ink);
 }
@@ -130,14 +214,6 @@ dl, dd, dt { margin: 0; }
 .brand { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; flex: none; }
 .brand-mark { width: 34px; height: 34px; fill: currentColor; flex: none; }
 .brand h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.04em; white-space: nowrap; }
-.brand-note {
-  margin: 0;
-  color: var(--shell-ink-2);
-  font-size: var(--fs-small);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
 .nav { display: flex; gap: var(--sp-1); flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 
@@ -177,7 +253,7 @@ dl, dd, dt { margin: 0; }
 #mode-badge { flex: none; background: transparent; color: var(--shell-ink-2); box-shadow: inset 0 0 0 1px #4A5468; }
 
 .task-bar {
-  padding: var(--sp-2) var(--sp-6);
+  padding: var(--sp-2) max(var(--sp-6), calc((100% - 1440px) / 2 + var(--sp-6)));
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
@@ -185,8 +261,6 @@ dl, dd, dt { margin: 0; }
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  max-width: 1440px;
-  margin: 0 auto;
   font-size: var(--fs-small);
   color: var(--ink-2);
   padding: 2px 0;
@@ -252,9 +326,23 @@ dl, dd, dt { margin: 0; }
 .btn-quiet:hover { background: var(--panel-deep); border-color: transparent; color: var(--ink); }
 
 .btn-small { min-height: 28px; padding: 0 10px; font-size: var(--fs-small); }
-.btn-large { min-height: 42px; padding: 0 var(--sp-6); font-size: var(--fs-lead); }
+.btn-icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; pointer-events: none; }
+.btn-small .btn-icon { width: 16px; height: 16px; }
+
+/* 只有图标的按钮：方的，名字靠 aria-label 和 title；忙碌时图标转起来。 */
+.btn-iconic { width: 34px; padding: 0; }
+.btn-iconic[aria-busy="true"] .btn-icon { animation: spin 900ms linear infinite; }
+
+/* “全部更新”：和列表里的小箭头、“有新版”标签同一种蓝，后面跟数量。 */
+.btn-update { background: var(--info-bg); border-color: var(--info-line); color: var(--info-ink); }
+.btn-update:hover { background: var(--info-hover); border-color: var(--info-ink); }
+.btn-update:disabled:hover { background: var(--info-bg); border-color: var(--info-line); }
+.btn-update .n { background: var(--info-ink); color: #FFFFFF; border-radius: 999px; padding: 0 7px; font-size: var(--fs-tiny); font-weight: 600; line-height: 1.6; }
 
 .link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font: inherit;
   font-size: var(--fs-small);
   color: var(--info-ink);
@@ -339,8 +427,46 @@ input[type="checkbox"]:disabled { cursor: default; }
   flex-wrap: wrap;
   margin: var(--sp-4) 0;
 }
-.toolbar-end { display: flex; gap: var(--sp-2); margin-left: auto; }
+.toolbar-end { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin-left: auto; }
 .row-wrap { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+
+/* 检查更新的结果：工具栏里一句话，没查成的可以展开看。 */
+.updates-status { display: inline-flex; align-items: center; gap: var(--sp-3); color: var(--ink-2); font-size: var(--fs-small); white-space: nowrap; }
+.updates-status:empty { display: none; }
+.updates-status > span { display: inline-flex; align-items: center; gap: 6px; }
+.updates-status .ico-ok { color: var(--ok-ink); }
+.updates-status .ico-up { color: var(--info-ink); }
+/* 技能页工具栏要在 1280 宽的窗口里排成一行，搜索框允许窄一点。 */
+#skills-search { min-width: 150px; }
+.failed-list { margin: calc(var(--sp-2) * -1) 0 var(--sp-3); padding: var(--sp-2) var(--sp-4); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: var(--fs-small); color: var(--ink-2); }
+.failed-list p { margin: var(--sp-1) 0; overflow-wrap: anywhere; }
+
+/* 技能页的筛选：分组一排，标签一排，都是单选，再点一次回到全部。 */
+.filters { display: grid; gap: var(--sp-2); margin: 0 0 var(--sp-3); }
+.filters:empty { display: none; }
+.chip-row { display: flex; align-items: baseline; gap: var(--sp-2); }
+.chip-label { flex: none; width: 32px; color: var(--muted); font-size: var(--fs-small); }
+.chip-set { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.fchip {
+  font: inherit;
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 0 var(--sp-3);
+  min-height: 28px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--speed) var(--ease), color var(--speed) var(--ease), border-color var(--speed) var(--ease);
+}
+.fchip:hover { background: var(--panel-soft); color: var(--ink); }
+.fchip .n { color: var(--muted); margin-left: 4px; }
+.fchip-update { background: var(--info-bg); border-color: var(--info-line); color: var(--info-ink); }
+.fchip-update .n { color: var(--info-ink); }
+.fchip-update:hover { background: var(--info-hover); color: var(--info-ink); }
+.fchip[aria-pressed="true"], .fchip[aria-pressed="true"]:hover { background: var(--shell); border-color: var(--shell); color: var(--shell-ink); font-weight: 600; }
+.fchip[aria-pressed="true"] .n { color: var(--shell-ink-2); }
 
 /* 分段选择：灰底里一块白，选中的那块浮起来。 */
 .segmented {
@@ -377,6 +503,7 @@ input[type="checkbox"]:disabled { cursor: default; }
   color: var(--info-ink);
   white-space: nowrap;
 }
+.tag .ico { width: 12px; height: 12px; margin-right: 3px; vertical-align: -2px; }
 .tag-quiet { background: var(--panel-deep); color: var(--ink-2); }
 .tag-warn { background: var(--warn-bg); color: var(--warn-ink); }
 .tag-ok { background: var(--ok-bg); color: var(--ok-ink); }
@@ -391,6 +518,8 @@ input[type="checkbox"]:disabled { cursor: default; }
 }
 .banner p { margin: 0 0 var(--sp-1); }
 .banner-row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.banner .note-line { color: inherit; font-size: var(--fs-body); }
+.banner .hint { color: inherit; }
 .banner-actions { margin-left: auto; display: flex; gap: var(--sp-2); }
 .banner-list { margin-top: var(--sp-2); border-top: 1px solid currentColor; padding-top: var(--sp-2); }
 .banner-warn { background: var(--warn-bg); border-color: #EFD98F; color: var(--warn-ink); }
@@ -464,10 +593,9 @@ input[type="checkbox"]:disabled { cursor: default; }
   border-radius: var(--radius-sm);
   text-align: center;
 }
-
-.center-block { text-align: center; padding: var(--sp-8) 0 var(--sp-6); }
-.center-block .btn { margin-bottom: var(--sp-2); }
-.center-block .muted { margin: 0; }
+/* 空状态：一个大图标加一句话，需要时再跟一个说明图标或一个按钮。 */
+.empty .ico-lg { display: block; margin: 0 auto var(--sp-2); color: var(--muted); }
+.empty .link-btn, .empty .hint { margin-left: var(--sp-2); }
 
 
 /* ---------- 技能页：左边选 agent，右边是它的技能 ---------- */
@@ -517,10 +645,11 @@ input[type="checkbox"]:disabled { cursor: default; }
 }
 .rail-note p { margin: 0; }
 .rail-note small { color: var(--muted); font-size: var(--fs-small); }
-.rail-note .row-wrap { margin-top: 2px; }
-.rail-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pending); display: inline-block; margin-right: 6px; vertical-align: 1px; }
+.rail-note-title { display: flex; align-items: center; gap: 6px; }
+.rail-note-row { display: flex; align-items: center; gap: var(--sp-1); }
+.rail-note-row .btn { margin-left: auto; }
 
-/* 签名元素：每个 agent 开场先读的字数，按分组分段；改了没应用时，变长的部分是黄色斜纹，变短的部分是空心斜纹。 */
+/* 签名元素：每个 agent 每次新对话占用的 Token，按分组分段；改了没应用时，变长的部分是黄色斜纹，变短的部分是空心斜纹。 */
 .load { display: grid; gap: 4px; min-width: 0; }
 .load-track { position: relative; display: flex; height: 8px; border-radius: 4px; background: var(--panel-deep); overflow: hidden; }
 .load-seg { height: 100%; flex: none; background: var(--c); border-right: 1px solid rgba(255, 255, 255, 0.8); }
@@ -539,13 +668,17 @@ input[type="checkbox"]:disabled { cursor: default; }
 .load-text b { color: var(--ink-2); font-weight: 600; }
 .load-text .delta { color: var(--pending-ink); font-weight: 600; }
 .load-big .load-track { height: 12px; border-radius: 6px; }
-.load-big .load-text { font-size: var(--fs-small); }
+.load-big .load-text { font-size: var(--fs-small); overflow: visible; white-space: normal; }
+.load-big .load-text .hint { margin-left: 2px; }
 
 .agent-head { margin-bottom: var(--sp-3); }
 .agent-head h2 { display: flex; align-items: center; gap: 10px; font-size: var(--fs-title); line-height: 1.25; }
 .agent-head h2 .swatch { width: 14px; height: 14px; border-radius: 4px; }
-.agent-head p { margin: var(--sp-1) 0 var(--sp-3); color: var(--ink-2); }
+.agent-head p { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: var(--sp-1) 0 var(--sp-3); color: var(--ink-2); }
 .agent-head .load { max-width: 640px; }
+/* 和别的 agent 共用一个技能文件夹：一个小标记，细节在说明图标里。 */
+.agent-share { display: inline-flex; align-items: center; gap: 4px; }
+.agent-share .hint { margin-left: -2px; }
 
 .todo {
   display: flex;
@@ -582,7 +715,7 @@ input[type="checkbox"]:disabled { cursor: default; }
 .list-group-head span { color: var(--muted); }
 .skill-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 72px 52px;
+  grid-template-columns: minmax(0, 1fr) 84px 88px;
   gap: var(--sp-4);
   align-items: center;
   padding: 10px var(--sp-4);
@@ -609,19 +742,59 @@ input[type="checkbox"]:disabled { cursor: default; }
   cursor: pointer;
 }
 .skill-name:hover .t { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
+/* 一句话和标签排在同一行：一句话放不下就省略，标签始终完整，列表因此更矮。 */
+.skill-sub { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
 .skill-sum {
+  flex: 0 1 auto;
+  min-width: 0;
   color: var(--ink-2);
   font-size: var(--fs-small);
   line-height: 1.5;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 .row-note { font-size: var(--fs-small); color: var(--muted); line-height: 1.5; }
 .row-note.is-pending { color: var(--pending-ink); }
 .row-note.is-error { color: var(--danger-ink); }
-.flag { font-size: var(--fs-tiny); font-weight: 400; color: var(--ink-2); background: var(--panel-deep); border-radius: 4px; padding: 0 6px; }
+.flag { display: inline-flex; align-items: center; gap: 3px; font-size: var(--fs-tiny); font-weight: 400; color: var(--ink-2); background: var(--panel-deep); border-radius: 4px; padding: 0 6px; }
+.flag .ico { width: 13px; height: 13px; vertical-align: 0; }
+
+/* 行尾：有新版时开关左边多一个小箭头，没有时留空，让列对齐。 */
+.row-end { display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-2); }
+.update-up {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--info-ink);
+  background: var(--info-bg);
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background-color var(--speed) var(--ease);
+}
+.update-up:hover { background: var(--info-hover); }
+.update-up:disabled { opacity: 0.5; cursor: default; }
+.update-up .btn-icon { width: 20px; height: 20px; }
+
+/* 行里和详情里的小标签：点一下就按它筛。 */
+.row-tags { display: flex; flex: none; gap: var(--sp-1); }
+.tag-pick {
+  font: inherit;
+  font-size: var(--fs-tiny);
+  line-height: 1.6;
+  color: var(--ink-2);
+  background: var(--panel-soft);
+  border: 0;
+  border-radius: 999px;
+  padding: 0 var(--sp-2);
+  cursor: pointer;
+}
+.tag-pick:hover { background: var(--panel-deep); color: var(--ink); }
+.tag-pick[aria-pressed="true"] { background: var(--shell); color: var(--shell-ink); }
 
 /* 开关：开着是这个 agent 的颜色；改了没应用时外面多一圈黄。 */
 .switch {
@@ -836,26 +1009,22 @@ table.grid tbody tr:hover td { background: var(--panel-soft); }
 }
 .entry-status { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-small); overflow-wrap: anywhere; }
 
-/* ---------- 检查更新页 ---------- */
+/* ---------- 详情面板里的“有新版”：看改了什么、决定怎么更新 ---------- */
 
-.update-list { display: flex; flex-direction: column; gap: var(--sp-3); margin: var(--sp-4) 0; }
-
-.update-row {
-  border: 1px solid var(--line);
+.detail-update {
+  background: var(--info-bg);
+  border: 1px solid var(--info-line);
   border-radius: var(--radius-lg);
-  background: var(--panel);
-  box-shadow: var(--shadow-1);
   padding: var(--sp-4);
+  margin-top: var(--sp-4);
 }
-.update-row.is-done { background: var(--panel-soft); box-shadow: none; }
-
-.update-head { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
-.update-head .check { min-height: 24px; }
-.update-title { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-.update-meta { color: var(--muted); font-size: var(--fs-small); }
+.detail-update h3 { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-body); margin: 0; color: var(--info-ink); }
+.detail-update .btn-icon { width: 18px; height: 18px; }
+.detail-update .risk-block { max-height: 220px; overflow: auto; }
+.update-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-3); }
+.update-choice { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-small); }
 .update-summary { color: var(--ink-2); font-size: var(--fs-small); margin: var(--sp-2) 0 0; }
 .update-links { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; margin-top: var(--sp-3); }
-.update-links .item-end { margin-left: auto; display: flex; gap: var(--sp-2); }
 .update-extra { margin-top: var(--sp-2); }
 .update-extra p { margin: var(--sp-1) 0; }
 .update-extra pre { margin: var(--sp-2) 0 0; }
@@ -907,6 +1076,7 @@ pre {
   align-items: flex-start;
 }
 .timeline li:last-child { border-bottom: 0; }
+.timeline li .empty { flex: 1; padding: var(--sp-4); }
 .timeline .log-time { color: var(--muted); font-size: var(--fs-small); white-space: nowrap; min-width: 150px; padding-top: 1px; }
 .timeline .log-body { flex: 1; min-width: 0; }
 .timeline .log-body p { margin: 0; overflow-wrap: anywhere; }
@@ -1055,10 +1225,6 @@ pre {
 
 /* ---------- 窄屏 ---------- */
 
-@media (max-width: 1279px) {
-  .brand-note { display: none; }
-}
-
 @media (max-width: 1023px) {
   .topbar-row, .task-bar, .page, .footer { padding-left: var(--sp-4); padding-right: var(--sp-4); }
   .topbar-row { gap: var(--sp-3); }
@@ -1070,8 +1236,8 @@ pre {
 }
 
 @media (max-width: 720px) {
-  .brand-note, #mode-badge { display: none; }
-  .skill-row { grid-template-columns: minmax(0, 1fr) 52px; }
+  #mode-badge { display: none; }
+  .skill-row { grid-template-columns: minmax(0, 1fr) 88px; }
   .skill-row .meta { display: none; }
   .who-row { grid-template-columns: minmax(0, 1fr) 44px; }
   .who-row p { grid-column: 1 / -1; grid-row: 2; }

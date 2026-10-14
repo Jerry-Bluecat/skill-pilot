@@ -203,7 +203,7 @@ def main():
                 print(json.dumps(data, ensure_ascii=False, indent=2))
             elif args.command == 'status':
                 for agent in data['agents']:
-                    print(f'{agent["name"]}：{agent["count"]} 个技能，描述 {agent["description_chars"]:,} 字；{agent["activation"]}')
+                    print(f'{agent["name"]}：{agent["count"]} 个技能，约 {agent["description_tokens"]:,} Token；{agent["activation"]}')
                 print(f'发现 {len(data["new_skills"])} 个新装的技能。')
             elif args.command == 'list':
                 for skill in data['skills']:
@@ -239,7 +239,7 @@ def main():
                     state = {"ignored": "已忽略", "discovered": "已发现，尚未接入"}.get(agent["status"], "可见数量暂时无法确认")
                     print(f'{agent["name"]}：{state}')
                 else:
-                    print(f'{agent["name"]}：{agent["visible_skill_count"]} 个，描述 {agent["description_chars"]:,} 字')
+                    print(f'{agent["name"]}：{agent["visible_skill_count"]} 个，约 {agent["description_tokens"]:,} Token')
             print(f'发现 {len(data["conflicts"])} 组同名不同内容的技能。')
     elif args.command == "ui":
         from .web.server import run

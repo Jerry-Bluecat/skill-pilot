@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from skill_pilot.scan import classify, conflict_groups, is_disabled, metadata, read_disabled, scan, scan_root
+from skill_pilot.scan import classify, conflict_groups, is_disabled, metadata, read_disabled, scan, scan_root, tokens
 
 
 class InventoryTests(unittest.TestCase):
@@ -168,6 +168,12 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(codex["available_user_skill_count"], 2)
         self.assertEqual(codex["manual_only_names"], ["grill-me"])
         self.assertEqual(codex["description_chars"], len("处理表格"))
+        self.assertEqual(codex["description_tokens"], tokens("grilling 处理表格"))
+
+    def test_token_estimate_counts_wide_characters_one_each_and_others_quarter(self):
+        self.assertEqual([tokens(t) for t in ("", "a", "ab", "abcdefgh", "处理表格", "处理，table", "Ｆｕｌｌ！")],
+                         [0, 0, 1, 2, 4, 4, 5])
+        self.assertEqual(tokens("grilling 处理表格"), 6)
 
     def test_codex_openai_policy_is_separate_from_dsh_invocation(self):
         path = self.skill(".agents/skills/critical-gate", "critical-gate")

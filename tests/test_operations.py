@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from skill_pilot import codex_config, operations, store
+from skill_pilot.scan import tokens
 from skill_pilot.sources import github
 from skill_pilot.sync import visibility
 
@@ -230,12 +231,27 @@ class AdditionalOperationsTests(unittest.TestCase):
 
     def test_table_carries_display_labels_and_groups(self):
         (self.home/'.skill-pilot/labels.json').write_text(json.dumps({'groups': [
-            {'name': '提问', 'skills': {'grilling': ['追问想法', '帮你把想法问清楚']}}]}))
+            {'name': '提问', 'skills': {'grilling': ['追问想法', '帮你把想法问清楚'],
+                                        'other': {'title': '其他', 'summary': '别的', 'description': '中文说明', 'tags': ['杂项']}}}]}))
         view=operations.table(self.home)
         rows={row['name']:row for row in view['skills']}
         self.assertTrue(rows['grilling']['title'] and rows['grilling']['summary'])
-        self.assertEqual((rows['other']['title'],rows['other']['summary']),('',''))
+        self.assertEqual((rows['grilling']['description_zh'],rows['grilling']['tags']),('',[]))  # 旧格式只有名字和一句话
+        self.assertEqual((rows['other']['description_zh'],rows['other']['tags']),('中文说明',['杂项']))
+        self.assertEqual((rows['grill-me']['title'],rows['grill-me']['summary'],rows['grill-me']['tags']),('','',[]))
         self.assertTrue(any('grilling' in group['skills'] for group in view['groups']))
+        self.assertEqual(view['labels_pending'],2)  # 只有 other 的名字、中文说明和标签都齐了
+
+    def test_token_estimate_in_table_agents_and_assignment_preview(self):
+        cost={n: tokens(n+' 示例技能') for n in ('grill-me','grilling','other')}
+        self.assign('grill-me','claude'); self.assign('other','claude')
+        view=operations.table(self.home)
+        self.assertEqual({r['name']: r['description_tokens'] for r in view['skills']},cost)
+        self.assertTrue(all('description_chars' not in r for r in view['skills']) and all('description_chars' not in a for a in view['agents']))
+        agents={a['id']: a for a in view['agents']}
+        self.assertEqual((agents['claude']['count'],agents['claude']['description_tokens']),(2,cost['grill-me']+cost['other']))
+        after=operations.preview_assign([{'skill':'grilling','agent':'claude','enabled':True}],self.home)['after']
+        self.assertEqual(after['claude'],{'count':3,'description_tokens':sum(cost.values())})
 
     def test_skill_labels_list_each_skill_once_with_title_and_summary(self):
         path=self.home/'.skill-pilot/labels.json'
@@ -249,8 +265,8 @@ class AdditionalOperationsTests(unittest.TestCase):
         self.assertNotIn('未分组',group_names)  # 看板用它放没写进对照表的技能
         for group in groups:
             for name,label in group['skills'].items():
-                self.assertEqual(len(label),2,name)
-                self.assertTrue(all(label),name)
+                self.assertEqual(set(label),{'title','summary','description','tags'},name)
+                self.assertTrue(label['title'] and label['summary'],name)
 
     @patch.object(operations, 'curated_dependencies', REAL_CURATED)
     def test_curated_writer_dependencies_expand_transitively_without_prompts(self):

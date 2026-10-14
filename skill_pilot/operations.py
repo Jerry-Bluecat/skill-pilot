@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import profiles
-from .scan import SKIP_CONTENT, content_digest, metadata, scan_root
+from .scan import SKIP_CONTENT, content_digest, metadata, scan_root, tokens
 from .store import (PROJECT, _restore, backup, check_links, git_tree, guard, physical_state,
                     target_home, transaction, write_allowed, write_json)
 from .sync import assignment_entries, reconcile_assignments, visibility, cell_notes, notes
@@ -94,6 +94,11 @@ def new_skills(home, agents):
     return result
 
 
+def listing_tokens(name, info):
+    """agent 每次新对话会读到的内容：技能名加说明。"""
+    return tokens(info.get('name', name) + ' ' + info.get('description', ''))
+
+
 def table(home=None):
     home, registry, agents = load(home)
     catalog = profiles.by_id(home)
@@ -101,13 +106,15 @@ def table(home=None):
     # 看板上的中文名和分组只用于显示；没写的技能显示原名。
     groups = labels.read(home)
     display = {name: label for group in groups for name, label in group['skills'].items()}
+    blank = {'title': '', 'summary': '', 'description': '', 'tags': []}
     rows = []
     for name, skill in sorted(registry['skills'].items()):
         path = home / '.skill-pilot/store' / name
         info = metadata((path / 'SKILL.md').read_text())
-        title, summary = display.get(name, ('', ''))
-        rows.append({'name': name, 'title': title, 'summary': summary, 'description': info.get('description', ''),
-                     'description_chars': len(info.get('description', '')), 'source': skill['source'],
+        label = display.get(name, blank)
+        rows.append({'name': name, 'title': label['title'], 'summary': label['summary'], 'description': info.get('description', ''),
+                     'description_zh': label['description'], 'tags': label['tags'],
+                     'description_tokens': listing_tokens(name, info), 'source': skill['source'],
                      'source_label': normalize(skill['source'])['label'],
                      'assigned_agents': skill['assigned_agents'], 'requires': skill.get('requires', []),
                      'local_modified': normalization.tree(path) != normalization.tree(home / '.skill-pilot/bases' / name),
@@ -117,10 +124,10 @@ def table(home=None):
                         'activation': '目录改变后会动态刷新' if catalog[a]['activation'] == 'immediate' else '新会话生效',
                         'activation_text': profiles.activation_text(catalog[a]),
                         'count': sum(a in s['assigned_agents'] for s in rows),
-                        'description_chars': sum(s['description_chars'] for s in rows if a in s['assigned_agents'])}
+                        'description_tokens': sum(s['description_tokens'] for s in rows if a in s['assigned_agents'])}
                        for a in agents], 'notes': notes(home, agents), 'new_skills': new_skills(home, agents),
             'groups': [{'name': group['name'], 'skills': list(group['skills'])} for group in groups],
-            'labels_pending': sum(not row['title'] for row in rows),
+            'labels_pending': sum(labels.needs_work(display.get(row['name'])) for row in rows),
             'llm_configured': bool(labels.settings(home).get('api_key'))}
 
 
@@ -216,13 +223,13 @@ def assignment_plan(registry, agents, changes, home=None):
 def preview_assign(changes, home=None):
     home, registry, agents = load(home)
     plan = assignment_plan(registry, agents, changes, home)
-    chars = {n: len(metadata((home / '.skill-pilot/store' / n / 'SKILL.md').read_text()).get('description', ''))
-             for n in registry['skills']}
+    cost = {n: listing_tokens(n, metadata((home / '.skill-pilot/store' / n / 'SKILL.md').read_text()))
+            for n in registry['skills']}
     return {k: v for k, v in plan.items() if k != 'registry'} | {
         'assignments': {n: s['assigned_agents'] for n, s in plan['registry']['skills'].items()},
         'cell_notes': cell_notes(plan['registry'], home, agents),
         'after': {a: {'count': sum(a in s['assigned_agents'] for s in plan['registry']['skills'].values()),
-                      'description_chars': sum(chars[n] for n, s in plan['registry']['skills'].items() if a in s['assigned_agents'])}
+                      'description_tokens': sum(cost[n] for n, s in plan['registry']['skills'].items() if a in s['assigned_agents'])}
                   for a in agents}}
 
 

@@ -63,18 +63,20 @@ def skill_state(home, name, skill):
     return hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
 
 
-def create(home=None, withdrawn=False):
+def create(home=None):
     home, registry, _ = operations.load(home)
     temporary = tempfile.mkdtemp(prefix='skill-pilot-updates-')
-    result = {'id': Path(temporary).name, 'temporary': temporary, 'home': str(home), 'withdrawn': withdrawn,
+    result = {'id': Path(temporary).name, 'temporary': temporary, 'home': str(home),
               'checked_at': datetime.now(timezone.utc).isoformat(), 'write_allowed': operations.write_allowed(home),
               'skills': [], 'errors': [], 'lark': None, 'running': True, 'done': 0, 'current': [],
               'update_count': 0, 'latest_count': 0, 'api_calls': 0, '_groups': {}}
     for name, skill in sorted(registry['skills'].items()):
-        if bool(skill['assigned_agents']) == withdrawn:
-            continue
+        if not skill['assigned_agents']:
+            continue  # 没有 agent 在用的不查
         try:
             source = normalize(skill['source'])
+            if source['kind'] == 'skip':
+                continue  # 自制的没有上游，不列出也不计数
         except ValueError as error:
             source = {'kind': 'skip', 'label': '没查清楚', 'error': str(error)}
         group = source.get('repository', source['kind'])
@@ -85,8 +87,8 @@ def create(home=None, withdrawn=False):
     return result
 
 
-def check(home=None, review=None, withdrawn=False, lock=None):
-    result = review if review is not None else create(home, withdrawn)
+def check(home=None, review=None, lock=None):
+    result = review if review is not None else create(home)
     home, temporary = Path(result['home']), result['temporary']
     lock = lock or threading.Lock()
     def publish(row):

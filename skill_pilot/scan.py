@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import tomllib
+import unicodedata
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -74,6 +75,12 @@ def metadata(text):
         result["version"] = version[1]
     result["model_invocable"] = result.get("disable-model-invocation", "false").lower() not in {"true", "yes", "on", "1"}
     return result
+
+
+def tokens(text):
+    """粗估 Token：中日韩和全角字符各算 1，其余字符每 4 个算 1，四舍五入。"""
+    wide = sum(unicodedata.east_asian_width(c) in "FW" for c in text)
+    return int(wide + (len(text) - wide) / 4 + .5)
 
 
 def classify(path, home):
@@ -172,7 +179,7 @@ def scan_root(root, recursive=True, digest_cache=None, user_root=True, excluded=
                 skills.append({"name": path.name, "directory_name": path.name,
                                "path": str(path), "kind": "link", "link_target": os.readlink(path),
                                "resolved_path": str(real), "broken": True, "valid": False,
-                               "description": "", "description_chars": 0, "digest": None,
+                               "description": "", "description_chars": 0, "description_tokens": 0, "digest": None,
                                "manual_only_for": [],
                                "name_mismatch": False, "warning": "链接指向的位置已不存在"})
                 return
@@ -207,6 +214,7 @@ def scan_root(root, recursive=True, digest_cache=None, user_root=True, excluded=
                                "manual_markers": markers,
                                "manual_only_for": [],
                                "description_chars": len(info.get("description", "")),
+                               "description_tokens": tokens(name + " " + info.get("description", "")),
                                "version": info.get("version"), "digest": digest_cache[real],
                                "name_mismatch": name != path.name, "warning": warning})
                 return
@@ -326,9 +334,10 @@ def scan(home=None, applications=None):
                        "available_user_skill_count": len(available),
                        "manual_only_names": sorted(manual_only - visible.keys()),
                        "description_chars": sum(s["description_chars"] for s in visible.values()),
+                       "description_tokens": sum(s["description_tokens"] for s in visible.values()),
                        "visible_names": sorted(visible), "disabled_paths": excluded})
         if profile['disable'] and disabled[profile['id']]["error"]:
-            agents[-1].update(visible_skill_count=None, description_chars=None,
+            agents[-1].update(visible_skill_count=None, description_chars=None, description_tokens=None,
                              visibility_note="配置文件未能读取，可见数量暂时无法确认。")
             errors.append({"path": str(home / profiles.adapter(profile).CONFIG_PATH), "message": disabled[profile['id']]["error"]})
     for root in roots.values():
@@ -359,7 +368,7 @@ def scan(home=None, applications=None):
         if matched:
             agents.append({"id": name.lower(), "name": name, "status": 'ignored' if name.lower() in profiles.state(home).get('ignored', []) else 'discovered', "evidence": matched,
                            "skill_roots": [], "readonly_roots": [], "visible_skill_count": None,
-                           "description_chars": None, "visibility_note": "已发现，尚未接入；目录文件数不等于实际可见数。"})
+                           "description_chars": None, "description_tokens": None, "visibility_note": "已发现，尚未接入；目录文件数不等于实际可见数。"})
     return {"schema_version": 1, "generated_at": datetime.now(timezone.utc).isoformat(),
             "home": str(home), "read_only": True, "agents": agents, "roots": list(roots.values()),
             "candidates": candidates, "conflicts": conflict_groups(all_user_skills + source_copies),

@@ -26,8 +26,8 @@ def preview(names, home=None):
             raise ValueError(f'「{name}」已经撤下，请到已撤下列表恢复。')
         if not skill['assigned_agents']:
             raise ValueError(f'「{name}」没有分配给任何 agent，不能撤下。')
-    titles = {name: title or name for group in labels.read(home)
-              for name, (title, _) in group['skills'].items()}
+    titles = {name: label['title'] for group in labels.read(home)
+              for name, label in group['skills'].items()}
     dependency_warnings = [f'「{titles.get(name, name)}」还要用「{titles.get(dependency, dependency)}」，撤下后它可能用不了。'
                            for name, skill in sorted(registry['skills'].items())
                            if name not in selected and skill['assigned_agents']

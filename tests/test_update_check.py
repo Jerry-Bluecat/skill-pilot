@@ -180,14 +180,22 @@ class UpdateCheckTests(unittest.TestCase):
                         updates.apply(review, ['sample'], confirmed=True)
                 finally: restore()
 
-    def test_withdrawn_skills_are_excluded_but_separate_check_is_available(self):
-        self.add_skill(assigned=False)
-        normal = self.review()
-        self.assertEqual([r['name'] for r in normal['skills']], ['sample'])
-        withdrawn = updates.check(self.home, withdrawn=True)
-        self.addCleanup(shutil.rmtree, withdrawn['temporary'], True)
-        self.assertEqual([r['name'] for r in withdrawn['skills']], ['zsecond'])
-        self.assertEqual((normal['total'], withdrawn['total']), (1, 1))
+    def test_unassigned_and_self_made_skills_are_not_checked_or_counted(self):
+        self.add_skill('zunused', assigned=False); self.add_skill('zmine'); self.add_skill('zbad')
+        path = self.home / '.skill-pilot/registry.json'
+        registry = json.loads(path.read_text())
+        registry['skills']['zmine']['source'] = {'source': '自制'}
+        registry['skills']['zbad']['source'] = {'source': 'example/repo', 'source_path': '../x'}
+        path.write_text(json.dumps(registry))
+        review = self.review()
+        # 自制的和没人用的都不出现；来源写坏的仍然列出并报“没查清楚”
+        self.assertEqual({r['name']: r['status'] for r in review['skills']}, {'sample': '有更新', 'zbad': '没查清楚'})
+        self.assertEqual((review['total'], review['repositories']), (2, 1))
+        self.assertNotIn('withdrawn', updates.public(review))
+        self.server()  # 接口忽略旧的 withdrawn 字段
+        first = self.request('/api/updates/check', {'withdrawn': True})[1]
+        self.assertEqual(first['total'], 2)
+        self.until(lambda r: not r['running'])
 
     def pin_baseline(self):
         path = self.home / '.skill-pilot/registry.json'
