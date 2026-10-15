@@ -5,6 +5,7 @@ import os
 import tarfile
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -48,7 +49,16 @@ class FakeHandler(BaseHTTPRequestHandler):
         if status == 302:
             self.send_header('Location', self.server.url + '/redirected')
         self.end_headers()
-        self.wfile.write(json.dumps({'choices': [{'message': {'content': reply}}]}).encode())
+        if reply is None:  # 排队时只发空行，直到客户端断开。
+            try:
+                while True:
+                    self.wfile.write(b'\n')
+                    self.wfile.flush()
+                    time.sleep(.05)
+            except (BrokenPipeError, ConnectionResetError):
+                return
+        self.wfile.write(reply if isinstance(reply, bytes) else
+                         json.dumps({'choices': [{'message': {'content': reply}}]}).encode())
 
 
 def fixture(case, count=3, description='材料' * 500):
@@ -279,6 +289,38 @@ class LabelsTests(unittest.TestCase):
         self.assertEqual(table['labels_pending'], 3)
         self.assertEqual([(r['title'], r['description_zh'], r['tags']) for r in table['skills']], [('旧名', '', [])] * 3)
 
+    def test_leading_blank_lines_in_normal_response(self):
+        self.configure()
+        self.ai.replies = [b'\n\n' + json.dumps({'choices': [{'message': {'content': '{"ok":true}'}}]}).encode()]
+        self.assertTrue(labels.test(self.home)['ok'])
+
+    def test_service_error_body_reports_busy_without_saving_or_leaking_details(self):
+        self.configure()
+        message = 'We were unable to start processing your request within the 900-second timeout limit. ' + KEY
+        body = b'\n\n' + json.dumps({'error': {'message': message}}).encode()
+        self.ai.replies = [body, body]
+        result = labels.test(self.home)
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['message'], labels.BUSY)
+        progress = self.run_labels()
+        self.assertEqual(progress['error'], labels.BUSY)
+        for value in (result, progress):
+            self.assertNotIn(KEY, json.dumps(value))
+            self.assertNotIn(message, json.dumps(value))
+        self.assertFalse((self.home / '.skill-pilot/labels.json').exists())
+
+    def test_blank_line_keepalives_stop_at_total_wait_limit(self):
+        self.configure()
+        self.ai.replies = [None]
+        started = time.monotonic()
+        with patch.object(labels, 'WAIT', .3):
+            progress = self.run_labels()
+        elapsed = time.monotonic() - started
+        self.assertEqual(progress['error'], labels.SLOW)
+        self.assertGreaterEqual(elapsed, .3)
+        self.assertLess(elapsed, 3)
+        self.assertFalse((self.home / '.skill-pilot/labels.json').exists())
+
     def test_plain_errors_and_no_redirected_key(self):
         self.configure()
         messages = {401: 'API key 不对', 403: 'API key 不对', 404: '服务地址或模型名不对',
@@ -293,9 +335,13 @@ class LabelsTests(unittest.TestCase):
         self.assertEqual(len(self.ai.calls), len(messages))
         with patch('skill_pilot.labels.urllib.request.OpenerDirector.open', side_effect=TimeoutError(KEY)) as mocked:
             result = labels.test(self.home)
+            self.assertEqual(result['message'], labels.SLOW)
+            self.assertNotIn(KEY, json.dumps(result))
+            self.assertEqual(mocked.call_args.kwargs['timeout'], 60)
+        with patch('skill_pilot.labels.urllib.request.OpenerDirector.open', side_effect=urllib.error.URLError(KEY)):
+            result = labels.test(self.home)
             self.assertIn('连不上', result['message'])
             self.assertNotIn(KEY, json.dumps(result))
-            self.assertEqual(mocked.call_args.kwargs['timeout'], 90)
         for reply in ('not JSON ' + KEY, '[]', '{"choices": []}', '{"ok": false}'):
             self.ai.replies = [reply]
             self.assertEqual(labels.test(self.home)['message'], labels.PARSE_ERROR)

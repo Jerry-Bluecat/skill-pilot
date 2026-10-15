@@ -2,6 +2,7 @@
 import json
 import os
 import secrets
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -11,6 +12,9 @@ from pathlib import Path
 from .store import guard
 
 PARSE_ERROR = 'AI 返回的内容看不懂，可以再试一次或换个模型。'
+BUSY = 'AI 服务这会儿太忙或出了故障，没能处理，请稍后再试。'
+SLOW = 'AI 服务太久没回应，可能正忙，请稍后再试。'
+WAIT = 240
 
 
 def settings(home):
@@ -120,18 +124,31 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None  # Never forward the saved key to another address.
 
 
-def completion(config, system, body):
+def completion(config, system, body, wait=None):
     if not config.get('api_key'):
         raise ServiceError('请先到设置里填好 AI 服务的 key。')
+    wait = WAIT if wait is None else wait
+    deadline = time.monotonic() + wait
     try:
         request = urllib.request.Request(config['base_url'].rstrip('/') + '/chat/completions',
             data=json.dumps({'model': config['model'], 'temperature': 0.2, 'messages': [
                 {'role': 'system', 'content': system}, {'role': 'user', 'content': json.dumps(body, ensure_ascii=False)}]}).encode(),
             headers={'Authorization': 'Bearer ' + config['api_key'], 'Content-Type': 'application/json'})
-        with urllib.request.build_opener(NoRedirect).open(request, timeout=90) as response:
-            content = json.load(response)['choices'][0]['message']['content']
+        with urllib.request.build_opener(NoRedirect).open(request, timeout=wait) as response:
+            data = bytearray()
+            # DeepSeek 排队时每 60 秒只发一个空行，单次读超时不会触发，所以按总时长判断。
+            while chunk := response.read1(65536):
+                data.extend(chunk)
+                if time.monotonic() >= deadline:
+                    raise ServiceError(SLOW)
+        result = json.loads(data)
+        if isinstance(result, dict) and 'choices' not in result and 'error' in result:
+            raise ServiceError(BUSY)
+        content = result['choices'][0]['message']['content']
         content = content.replace(config['api_key'], '[已隐藏]')
         return json.loads(content[content.index('{'):content.rindex('}') + 1])
+    except ServiceError:
+        raise
     except urllib.error.HTTPError as error:
         message = {401: 'API key 不对或没有权限，请到服务商后台核对。',
                    403: 'API key 不对或没有权限，请到服务商后台核对。',
@@ -140,6 +157,8 @@ def completion(config, system, body):
                    429: '余额不足或请求太频繁，请稍后再试。'}.get(error.code,
                    f'AI 服务暂时出错（错误码 {error.code}），请稍后再试。')
         raise ServiceError(message) from None
+    except TimeoutError:
+        raise ServiceError(SLOW) from None
     except (OSError, urllib.error.URLError):
         raise ServiceError('连不上这个 AI 服务，请检查网络或服务地址。') from None
     except (ValueError, KeyError, TypeError, IndexError, AttributeError):
@@ -148,7 +167,7 @@ def completion(config, system, body):
 
 def test(home):
     try:
-        result = completion(settings(home), '只输出 JSON。', {'要求': '回复 {"ok":true}'})
+        result = completion(settings(home), '只输出 JSON。', {'要求': '回复 {"ok":true}'}, wait=60)
         if not isinstance(result, dict) or result.get('ok') is not True:
             raise ServiceError(PARSE_ERROR)
         return {'ok': True, 'message': '连接成功，可以给技能起中文名了。'}
