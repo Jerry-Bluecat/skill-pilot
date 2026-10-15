@@ -13,17 +13,17 @@ from ..scan import content_digest, scan_root
 from ..store import attribution, git_tree
 
 
-def git(directory, *args, timeout=120):
+def git(directory, *args, timeout=120, input=None):
     env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
     env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull, GIT_TERMINAL_PROMPT='0')
     try:
         result = subprocess.run(['git', '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false',
-                                 '-C', str(directory), *args], env=env, capture_output=True, text=True, timeout=timeout)
+                                 '-C', str(directory), *args], env=env, capture_output=True, text=True, timeout=timeout, input=input)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise ValueError('仓库读取超时或工具暂时不可用，请稍后重试。') from error
     if result.returncode:
         raise ValueError('仓库读取没能完成，请检查链接和网络后重试。')
-    return result.stdout.strip()
+    return result.stdout if '-z' in args else result.stdout.strip()
 
 
 def parse_url(url):
@@ -67,13 +67,24 @@ def inspect(url):
             match = sorted((r for r in names if suffix == r or suffix.startswith(r + '/')), key=len, reverse=True)
             ref = match[0] if match else suffix.split('/')[0]
             subpath = suffix[len(ref):].lstrip('/')
-        args = ['clone', '--depth', '1', '--no-local']
+        args = ['clone', '--depth', '1', '--no-local', '--filter=blob:none', '--no-checkout']
         if ref and not re.fullmatch(r'[0-9a-f]{7,40}', ref):
             args += ['--branch', ref]
         git(temporary, *args, '--', clone_url, str(checkout))
+        commit = 'HEAD'
         if ref and re.fullmatch(r'[0-9a-f]{7,40}', ref):
             git(checkout, 'fetch', '--depth', '1', 'origin', ref)
-            git(checkout, 'checkout', '--detach', 'FETCH_HEAD')
+            commit = 'FETCH_HEAD'
+        files = git(checkout, 'ls-tree', '-r', '-z', '--name-only', commit, '--', subpath or '.').split('\0')
+        if not any(files):
+            raise ValueError('这个仓库里没有找到指定的文件夹。')
+        folders = sorted({str(Path(p).parent) for p in files if Path(p).name == 'SKILL.md'})
+        if not folders:
+            return {'id': temporary.name, 'temporary': str(temporary), 'url': url, 'skills': []}
+        if '.' not in folders:
+            git(checkout, 'sparse-checkout', 'set', '--cone', '--stdin',
+                input=''.join(json.dumps('./' + p + '/', ensure_ascii=False) + '\n' for p in folders))
+        git(checkout, 'checkout', '-q', '--detach', commit)
         root = checkout / subpath
         if not root.resolve().is_relative_to(checkout) or not root.is_dir():
             raise ValueError('这个仓库里没有找到指定的文件夹。')

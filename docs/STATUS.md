@@ -15,7 +15,7 @@
 
 2026-10-12 的真实数据：登记 130 个技能，97 个分配给至少一个 agent，33 个已撤下。各 agent 技能数与描述字数：Codex 89 个 / 27,448 字，DSH 63 / 17,681，Claude 46 / 12,236，Antigravity 39 / 10,185。统一仓库共 9 次提交。
 
-代码：`skill_pilot/` 约 7,600 行（另有样式 `app.css` 约 870 行、agent 档案 `profiles/catalog.json`）；185 项单测全部通过。启动器 `~/Applications/Skill Pilot.app`、命令行 `~/.local/bin/skill-pilot`、四个 agent 已装 `skill-pilot` 技能。
+代码：`skill_pilot/` 约 7,600 行（另有样式 `app.css` 约 870 行、agent 档案 `profiles/catalog.json`）；197 项单测全部通过。启动器 `~/Applications/Skill Pilot.app`、命令行 `~/.local/bin/skill-pilot`、四个 agent 已装 `skill-pilot` 技能。
 
 前端：2026-10-11 重做完成（DSH 执行三轮，Claude 在模拟 home 逐页验收，用户确认合并）。仍是 `index.html` + `app.css` + `app.js` 三个文件、不引入框架和构建工具；主页面（技能 / 清理 / 操作记录；检查更新已在 2026-10-14 并进技能页）+ 低调的“诊断与备份”；所有写入统一走确认框 → 忙碌态与锁定 → 带撤销的提示（`runWrite()`）。交接与验收记录见 [handoff-frontend-redesign.md](handoff-frontend-redesign.md)、[frontend-redesign-report.md](frontend-redesign-report.md)（含旧功能 → 新位置对照表）。
 
@@ -29,10 +29,17 @@ SP 优化点（2026-10-14，Claude 拆分、Sonnet 子代理执行，Claude 审�
 - 检查更新不再单独一页：技能页工具栏“检查更新”（带进度），有新版的技能在开关左边出现小箭头。本机没改过、没有脚本变化、不是飞书的，点一下直接更新、可撤销；改过、有脚本变化、拿不准、飞书整组的，点了打开详情里的“有新版”区（看对比、让 Codex 解释或合并、选用新版或保留我的）再更新。“全部更新 N”一次确认。检查范围只含至少一个 agent 在用、且不是自制的技能（后端 `updates.create()` 去掉 `withdrawn`；清理页“检查已撤下技能的更新”按钮已删）。已知：撤销一次更新后，小箭头要重新检查才会回来。
 - “开场先读多少字”改为“占用 7.2k Token”：后端 `scan.tokens()` 粗估（中日韩全角字符各算 1，其余每 4 个算 1，算技能名加说明），`/api/table` 与预览改给 `description_tokens`；命令行也改说 Token。
 - 找技能：搜索框下加“分组”和“标签”两排筛选，另有“有新版 N”；搜索也匹配中文说明和标签。
-- AI 整理：填了 key 后，除中文名、一句话和分组外，还把完整说明翻成中文、打 1–3 个标签（每批 10 个，最多发 1500 字说明）。`labels.json` 每个技能存为 `{title, summary, description, tags}`，旧的 `[中文名, 说明]` 照常读；补齐时已有的中文名和分组原样保留，只补说明和标签。详情里中文说明在前、原文折叠。
+- AI 整理：填了 key 后，除中文名、一句话和分组外，还把完整说明翻成中文、打 1–3 个标签（每批 10 个，最多发 1500 字说明；同日改为每批最多 5 个，见下面“安装少点几下”）。`labels.json` 每个技能存为 `{title, summary, description, tags}`，旧的 `[中文名, 说明]` 照常读；补齐时已有的中文名和分组原样保留，只补说明和标签。详情里中文说明在前、原文折叠。
 - 页头去掉标语，内容和页面主体一起居中（最宽 1440px）。
 - 引导改成图标 + 几个字，长解释放进 ⓘ 提示（悬停或键盘聚焦可看）；新增 15 个同规格线条图标，规则写进 [DESIGN.md](../DESIGN.md)。确认框、报错、托盘说明仍用文字。
-- 183 项单测通过、页面脚本检查通过；五个页面、详情、安装框在 1280px 下检查无报错，工具栏一行放下。`skill/skill-pilot/SKILL.md` 已改（检查范围、Token 说法），统一仓库里装着的那份尚未换新，需用户同意后照 2026-10-13 的做法更新。
+- 183 项单测通过、页面脚本检查通过；五个页面、详情、安装框在 1280px 下检查无报错，工具栏一行放下。`skill/skill-pilot/SKILL.md` 已改（检查范围、Token 说法），用户同意后，2026-10-14 照 2026-10-13 的做法（`operations._run`，先备份、写操作记录、可撤销）把统一仓库和基准里的 skill-pilot 换成新版，操作记录“把 skill-pilot 技能说明换成新版”；前后指纹只多了备份、记录，改了这份说明、它的状态文件和登记表里它的基准指纹。
+
+安装少点几下（2026-10-14，Claude 查原因、写交接、审查验收；后端 Codex、前端 DSH 执行两轮）：用户嫌装一个技能要读半天、点两次安装、装完还得刷新才起中文名。
+- 读取：`github.inspect()` 先只下文件清单，再只取 `SKILL.md` 所在文件夹（技能在仓库根目录时照旧整个取）。用户贴的 lemo-opuscar 约 120 MB，从 71.6 秒降到 7～15 秒（看网速）。
+- 安装框：粘贴或停手 0.6 秒自动读，去掉“读取”按钮；找到的技能默认全勾，已装过的标“已经装过”不能勾；默认给技能页正在看的 agent；只点一次“安装”，不再弹确认框，完成提示写“装好了 X，给了 Codex”并带撤销。
+- 中文名：装完自动整理（填了 key 时），新装的插到下一批最前面；每批最多 5 个、说明合计不超过 3000 字；页面每整理完一批就刷新列表，不用等整轮。
+- 用户真实看板上，旧程序给 131 个补中文说明的那一轮失败了（第一批 10 个等了 5 分钟以上，返回内容解析不了），`labels.json` 没被改动。用 Claude 只读脚本拿用户自己的 DeepSeek（deepseek-flash）试调：5 个一批 14 秒成功。用户重开看板后，新程序会自动重新补这 131 个。
+- 197 项单测通过、页面脚本检查通过。模拟 home + 本机假 AI 服务上用浏览器走完：贴链接 → 一次安装 → 撤销 → 再装、重复装显示“已经装过”、整理途中装的技能下一批就有中文名并显示在页面上。交接与报告：[handoff-install-flow.md](handoff-install-flow.md)、[install-flow-report.md](install-flow-report.md)、[handoff-install-flow-frontend.md](handoff-install-flow-frontend.md)、[install-flow-frontend-report.md](install-flow-frontend-report.md)。
 
 技能页可读性（2026-10-12，Codex 执行，Claude 在模拟 home + 本机假 AI 服务上逐项验收）：技能显示中文名和一句话说明（英文原名小字跟在后面），按用途分组、默认收起，在用技能多的组排前面，组标题行写各 agent 分到几个；首页不显示来源标签。中文名和分组存在用户自己的 `~/.skill-pilot/labels.json`，只影响显示；用户的 130 个技能已迁入（Claude 手写的 12 组）。新增低调的“设置”页：选 AI 服务、填 key、保存并试一下；填了 key 才会在打开看板时自动给没有中文名的技能起名（每批 25 个，只发名字和最多 500 字说明），也可“重新整理全部”（留 `labels.previous.json`）。key 存在权限 0600 的 `settings.json`，不复制进模拟 home、不进备份和日志、不出现在任何接口返回里。没有分组时平铺原名并提示去设置。用户真实环境目前没填 key。交接与报告见 [handoff-llm-labels.md](handoff-llm-labels.md)、[llm-labels-report.md](llm-labels-report.md)。
 
