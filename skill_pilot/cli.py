@@ -39,6 +39,15 @@ def main():
     source_command.add_argument('--path', required=True)
     source_command.add_argument('--yes', action='store_true')
     source_command.add_argument('--json', action='store_true')
+    exporting = commands.add_parser('export-config', help='导出可分享的技能清单和分配')
+    exporting.add_argument('--output', default='skill-pilot-config.json', help='保存位置，不覆盖已有文件')
+    exporting.add_argument('--agent', help='只导出这个 agent 在用的技能，默认全部在用技能')
+    exporting.add_argument('--json', action='store_true')
+    importing = commands.add_parser('import-config', help='预览或批量导入分享的技能配置')
+    importing.add_argument('file')
+    importing.add_argument('--agent', action='append', help='改为分配给本机的这些 agent')
+    importing.add_argument('--yes', action='store_true')
+    importing.add_argument('--json', action='store_true')
     undo = commands.add_parser("restore", help="确认还原到指定备份")
     undo.add_argument("backup_id")
     undo.add_argument("--json", action="store_true")
@@ -79,6 +88,42 @@ def main():
     def fail(error):
         print(json.dumps({'error': str(error)}, ensure_ascii=False) if args.json else str(error))
         raise SystemExit(1)
+    if args.command in {'export-config', 'import-config'}:
+        from . import sharing
+        try:
+            if args.command == 'export-config':
+                config = sharing.export_config(agent=args.agent)
+                path = Path(args.output).expanduser().absolute()
+                try:
+                    with path.open('x', encoding='utf-8') as stream:
+                        stream.write(json.dumps(config, ensure_ascii=False, indent=2) + '\n')
+                except FileExistsError:
+                    raise ValueError('保存位置已有文件，请换一个文件名。') from None
+                result = {'path': str(path), 'count': len(config['skills']),
+                          'message': f'已导出 {len(config["skills"])} 个技能的配置；把文件交给对方的 agent 即可。'}
+            else:
+                config = sharing.read_config(args.file)
+                result = (sharing.import_config(config, args.agent) if args.yes else
+                          sharing.preview_import(config, args.agent))
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+            else:
+                print(result['message'])
+                if 'path' in result:
+                    print(result['path'])
+                for item in result.get('skipped', []):
+                    print(item['name'] + '：' + item['reason'])
+                if result.get('unmapped_agents'):
+                    print('本机还没接入：' + '、'.join(result['unmapped_agents']) + '；可用 --agent 指定接收方。')
+                if args.command == 'import-config' and not args.yes:
+                    print('确认安装和分配时，在同一命令后加 --yes；已有技能内容会保留。')
+                if result.get('id'):
+                    print('可以撤销：skill-pilot undo ' + result['id'])
+            if args.command == 'import-config' and args.yes and not result['complete']:
+                raise SystemExit(2)
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            fail(error)
+        return
     if args.command in {'cleanup','restore-withdrawn','set-source'}:
         from . import cleanup
         try:

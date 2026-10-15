@@ -18,7 +18,7 @@ from pathlib import Path
 
 from ..scan import scan
 from ..store import SKIP_CONTENT, apply, backups, guard, preview, restore, target_home
-from .. import operations, updates, cleanup, labels
+from .. import operations, updates, cleanup, labels, sharing
 from .. import agents as agent_management
 from ..sources import github
 
@@ -101,6 +101,12 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, labels.public_settings(self.server.home))
         elif path == '/api/labels/progress':
             self.reply(200, self.server.labels_progress.copy())
+        elif path == '/api/config/export':
+            try:
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                self.reply(200, sharing.export_config(self.server.home, query.get('agent', [None])[0]))
+            except (ValueError, OSError, KeyError) as error:
+                self.reply(409, {'error': str(error)})
         elif path == '/api/updates/progress':
             with self.server.update_lock:
                 review = next(reversed(self.server.update_reviews.values()), None)
@@ -161,10 +167,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         read_routes = {'/api/assignment/preview', '/api/cleanup/preview', '/api/install/inspect', '/api/incoming/compare',
                        '/api/updates/check', '/api/updates/explain', '/api/updates/merge', '/api/updates/calibrate',
-                       '/api/agents/join/preview', '/api/agents/leave/preview', '/api/agents/ignore/preview'}
+                       '/api/agents/join/preview', '/api/agents/leave/preview', '/api/agents/ignore/preview', '/api/config/preview'}
         write_routes = {'/api/assignment/apply', '/api/dependencies', '/api/install/apply', '/api/absorb', '/api/undo',
                         '/api/updates/apply','/api/cleanup/apply','/api/withdrawn/restore',
-                        '/api/agents/join/apply', '/api/agents/leave/apply', '/api/agents/ignore/apply'}
+                        '/api/agents/join/apply', '/api/agents/leave/apply', '/api/agents/ignore/apply', '/api/config/apply'}
         settings_routes = {'/api/settings/llm', '/api/settings/llm/test', '/api/labels/run'}
         if path not in {"/api/migration/apply", "/api/restore"} | read_routes | write_routes | settings_routes:
             self.reply(405, {"error": "当前阶段没有这个操作。"})
@@ -223,6 +229,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/assignment/preview':
                 self.reply(200, operations.preview_assign(body['changes'], self.server.home))
                 return
+            if path == '/api/config/preview':
+                self.reply(200, sharing.preview_import(body.get('config'), body.get('agents'), self.server.home))
+                return
             if path == '/api/cleanup/preview':
                 self.reply(200, cleanup.preview(body.get('skills'), self.server.home))
                 return
@@ -272,7 +281,7 @@ class Handler(BaseHTTPRequestHandler):
                 except ValueError as error:
                     self.reply(400, {'error': str(error)})
                     return
-            if path in {'/api/agents/join/apply', '/api/agents/leave/apply', '/api/agents/ignore/apply', '/api/cleanup/apply'} and (not isinstance(body.get('revision'), str) or not body['revision']):
+            if path in {'/api/agents/join/apply', '/api/agents/leave/apply', '/api/agents/ignore/apply', '/api/cleanup/apply', '/api/config/apply'} and (not isinstance(body.get('revision'), str) or not body['revision']):
                 raise ValueError('请先读取当前状态，再确认这次操作。')
             if path == "/api/migration/apply":
                 result = apply(body["plan_id"], self.server.home, body["agents"], body.get("choices"), body.get("sources"))
@@ -281,6 +290,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = restore(body["backup_id"], self.server.home)
             elif path == '/api/assignment/apply':
                 result = operations.apply_assign(body['changes'], body['revision'], True, self.server.home)
+            elif path == '/api/config/apply':
+                result = sharing.import_config(body.get('config'), body.get('agents'), self.server.home, body['revision'])
             elif path == '/api/agents/join/apply':
                 result = agent_management.join(body['agents'], body['plan_id'], body['revision'], body.get('choices'), self.server.home)
             elif path == '/api/agents/leave/apply':

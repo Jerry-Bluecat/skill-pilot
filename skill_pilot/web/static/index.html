@@ -308,6 +308,20 @@
     </details>
   </section>
   <section id="page-settings" class="page-section" hidden>
+    <h2 class="section-title">分享技能配置</h2>
+    <p class="note-line"><svg class="ico" aria-hidden="true" focusable="false"><use href="#sp-file-kept"/></svg>
+      <span>导出分享给对方，或导入收到的清单，一次安装和分配。</span>
+      <button type="button" class="hint" data-hint="只包含已应用的在用技能、来源、分配和依赖。已撤下的技能默认不带；仍被需要的依赖会带上。自制、来源缺失或本机改过的技能会标明待补齐。对方已有同名技能的内容会保留。"></button>
+    </p>
+    <p class="note-line"><svg class="ico" aria-hidden="true" focusable="false"><use href="#sp-lock"/></svg>
+      <span>不含技能正文、账号密钥和本机目录；文件内附使用说明。</span>
+    </p>
+    <p class="row-wrap">
+      <select id="config-agent" class="input" aria-label="导出哪些技能"><option value="">全部在用技能</option></select>
+      <button id="config-export" class="btn" disabled><svg class="btn-icon" aria-hidden="true" focusable="false"><use href="#sp-file-kept"/></svg><span>导出配置</span></button>
+      <button id="config-import" class="btn" disabled><svg class="btn-icon" aria-hidden="true" focusable="false"><use href="#sp-inbox"/></svg><span>导入配置</span></button>
+    </p>
+
     <h2 class="section-title">agent</h2>
     <p id="agents-empty" class="note-line" hidden>
       <svg class="ico" aria-hidden="true" focusable="false"><use href="#sp-info"/></svg>
@@ -412,6 +426,27 @@
     <div class="dialog-actions">
       <button id="join-close" type="button" class="btn">关闭</button>
       <button id="join-apply" type="button" class="btn btn-primary">接入</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="config-import-dialog" class="dialog dialog-wide" aria-labelledby="config-import-title">
+  <form class="dialog-form">
+    <h2 id="config-import-title">导入技能配置</h2>
+    <div class="settings-form">
+      <label for="config-import-file">选择收到的配置文件</label>
+      <input id="config-import-file" type="file" class="input" accept=".json,application/json">
+      <label for="config-import-agent">给谁使用</label>
+      <select id="config-import-agent" class="input"><option value="">按配置中的分配</option></select>
+    </div>
+    <p class="muted">已有同名技能会保留，只补上分配和所需技能。导入后可整批撤销。</p>
+    <p id="config-import-message" role="status">选好文件后，先核对可导入和待补齐的技能。</p>
+    <div id="config-import-review" class="dialog-body"></div>
+    <div class="dialog-actions">
+      <button id="config-import-close" type="button" class="btn">关闭</button>
+      <button id="config-import-retry" type="button" class="btn" hidden>重新预览</button>
+      <button id="config-import-undo" type="button" class="btn" hidden>撤销这次导入</button>
+      <button id="config-import-apply" type="button" class="btn btn-primary" disabled>导入</button>
     </div>
   </form>
 </dialog>

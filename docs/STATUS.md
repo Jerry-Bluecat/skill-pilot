@@ -15,9 +15,11 @@
 
 2026-10-12 的真实数据：登记 130 个技能，97 个分配给至少一个 agent，33 个已撤下。各 agent 技能数与描述字数：Codex 89 个 / 27,448 字，DSH 63 / 17,681，Claude 46 / 12,236，Antigravity 39 / 10,185。统一仓库共 9 次提交。
 
-代码：`skill_pilot/` 约 7,600 行（另有样式 `app.css` 约 870 行、agent 档案 `profiles/catalog.json`）；197 项单测全部通过。启动器 `~/Applications/Skill Pilot.app`、命令行 `~/.local/bin/skill-pilot`、四个 agent 已装 `skill-pilot` 技能。
+代码：`skill_pilot/` 约 8,000 行（另有样式 `app.css`、agent 档案 `profiles/catalog.json`）；218 项单测全部通过。启动器 `~/Applications/Skill Pilot.app`、命令行 `~/.local/bin/skill-pilot`、四个 agent 已装 `skill-pilot` 技能。
 
 前端：2026-10-11 重做完成（DSH 执行三轮，Claude 在模拟 home 逐页验收，用户确认合并）。仍是 `index.html` + `app.css` + `app.js` 三个文件、不引入框架和构建工具；主页面（技能 / 清理 / 操作记录；检查更新已在 2026-10-14 并进技能页）+ 低调的“诊断与备份”；所有写入统一走确认框 → 忙碌态与锁定 → 带撤销的提示（`runWrite()`）。交接与验收记录见 [handoff-frontend-redesign.md](handoff-frontend-redesign.md)、[frontend-redesign-report.md](frontend-redesign-report.md)（含旧功能 → 新位置对照表）。
+
+分享技能配置（2026-10-14，Codex）：用户选定「技能清单和来源，包含分配关系；自制技能另列提示」。设置页新增导出和导入入口，可分享全部在用技能或某个 agent；导出文件自带接收方 Agent 使用说明，不带技能正文、密钥和本机目录。导入时选文件、核对将安装/沿用本机/待补齐的明细，再一次安装和分配；默认沿用配置中的分配，也可指定本机接收方。保留已有同名技能，补上分配和依赖，完成后保留结果明细、支持整批撤销。预览后本机状态变了会要求重新预览。另有 `export-config`、`import-config` 命令供 Agent 使用。218 项测试及页面检查通过；两种范围的导出、无效文件、部分导入和撤销均已实测，撤销后模拟技能库恢复原状。使用方法和边界见 [sharing-config.md](sharing-config.md)。真实技能库和正在运行的看板未改动，正常关闭全部页面后重新打开即可使用新版。
 
 SP 图标（2026-10-14，Codex）：按用户要求用 brandkit 生成设计板，再制作深浅两版 SP 标志、六个统一线宽的导航图标与浏览器小图标。页头和导航已在用户当前看板读回；浏览器小图标的新资源入口在下次正常启动后生效，未结束正在运行的看板。设计板见 `docs/brand/skill-pilot-brandkit.png`，图标规则见 [DESIGN.md](../DESIGN.md)。用户明确 SP 是桌面上的本地技能管理工具，无需手机适配；本次新增的手机排版已撤回。六个导航与键盘操作在模拟 home 验证，177 项单测通过，页面脚本检查通过。
 
@@ -80,4 +82,4 @@ SP 优化点（2026-10-14，Claude 拆分、Sonnet 子代理执行，Claude 审�
 
 - Codex 桌面 app 会自己改 `~/.codex/config.toml`（如给运行过的项目目录加信任条目、加功能开关），核对指纹时不要误判为本工具改的。
 - 改了代码要让后台换新：请用户关掉全部看板页面，30 秒内退出。若用户曾直接退出 Chrome，旧后台可能还在（最长 24 小时）；经用户同意后结束临时目录 `skill-pilot-<uid>-*.lock` 里记录的进程。
-- 项目代码备份在 GitHub 私有仓库 [Simonlau4/skill-pilot](https://github.com/Simonlau4/skill-pilot)；本机技能库和设置不上传。
+- 项目代码在 GitHub 公开仓库 [Simonlau4/skill-pilot](https://github.com/Simonlau4/skill-pilot)（2026-10-14 用户要求公开）；本机技能库和设置不上传。

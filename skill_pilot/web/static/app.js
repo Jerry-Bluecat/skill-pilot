@@ -282,6 +282,7 @@ const WRITE_LOCK_SELECTORS = [
   '#skills-list button[data-skill]', '#skills-list button[data-update-up]', '#action-bar button', '#skills-refresh', '#skills-install',
   '#cleanup-rows input[data-cleanup]', '#withdrawn-list button', '#withdrawn-refresh',
   '#updates-check', '#updates-all',
+  '#config-export', '#config-agent', '#config-import', '#config-import-dialog input', '#config-import-dialog select', '#config-import-dialog button',
   '#log-list button', '#log-refresh', '#detail-body button:not(.hint)', '#detail-body select',
   '#new-absorb', '#new-toggle', '#install-dialog input', '#install-dialog button:not(.hint)',
   '#agents-managed button:not(.hint)', '#agents-suggested button:not(.hint)', '#agents-ignored button:not(.hint)', '#agents-join-dialog input', '#agents-join-dialog button:not(.hint)',
@@ -303,6 +304,7 @@ function lockControls(selectors) {
 
 /* 正在写入时把各区重画一遍，让新画出来的控件也是禁用的。 */
 function renderBusyAreas() {
+  renderConfigExport();
   renderSkillTable();
   renderSkillsActionBar();
   renderCleanup();
@@ -558,7 +560,7 @@ function showPage(page) {
   if (page === 'cleanup') { renderCleanup(); loadCleanup(); }
   if (page === 'log') { renderLog(); refreshLog(); }
   if (page === 'diagnostics') renderDiagnostics();
-  if (page === 'settings') { renderAgents(); refreshSettings(); }
+  if (page === 'settings') { renderConfigExport(); renderAgents(); refreshSettings(); }
   renderActionBar();
   window.scrollTo({top: 0, behavior: 'auto'});
 }
@@ -1177,6 +1179,7 @@ async function refreshTable(preserveDraft = false) {
   state.autoAdded = new Map();
   if (keepDraft) { state.draft = draft; state.pending = pending; }
   state.agents = table.agents || [];
+  renderConfigExport();
   $('mode-badge').textContent = table.write_allowed ? '可以管理技能' : '只读预览';
   $('skills-install').disabled = !table.write_allowed;
   renderNewSkills();
@@ -1248,6 +1251,192 @@ async function refreshSettings() {
     toast({text: error.message, tone: 'error'});
   }
 }
+
+function renderConfigExport() {
+  const selected = $('config-agent').value;
+  $('config-agent').innerHTML = '<option value="">全部在用技能</option>' + state.agents.map(agent =>
+    `<option value="${escape(agent.id)}">${escape(agent.name)} 在用的技能</option>`).join('');
+  $('config-agent').value = state.agents.some(agent => agent.id === selected) ? selected : '';
+  $('config-export').disabled = !state.table || Boolean(writeBusy);
+  $('config-agent').disabled = !state.table || Boolean(writeBusy);
+  $('config-import').disabled = !state.table || Boolean(writeBusy);
+  renderConfigImportControls();
+}
+
+$('config-export').addEventListener('click', async () => {
+  try {
+    await withBusy($('config-export'), '正在导出…', async () => {
+      const agent = $('config-agent').value;
+      const config = await api('/api/config/export' + (agent ? '?agent=' + encodeURIComponent(agent) : ''));
+      const url = URL.createObjectURL(new Blob([JSON.stringify(config, null, 2) + '\n'], {type: 'application/json'}));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'skill-pilot-config.json';
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      const manual = config.skills.filter(skill => skill.local_modified || skill.source.kind === 'manual').length;
+      toast({text: `已导出 ${config.skills.length} 个技能的配置。${manual ? `其中 ${manual} 个需要对方另行补齐，文件里已标明。` : '把文件交给对方的 agent 即可。'}`});
+    });
+  } catch (error) {
+    toast({text: error.message, tone: 'error'});
+  }
+});
+
+let configImportData = null;
+let configImportPlan = null;
+let configImportResult = null;
+let configImportSequence = 0;
+let configImportReading = false;
+
+function configImportAgents() {
+  const agent = $('config-import-agent').value;
+  return agent ? [agent] : null;
+}
+
+function renderConfigImportControls() {
+  const busy = Boolean(writeBusy);
+  for (const id of ['config-import-file', 'config-import-agent']) {
+    $(id).disabled = busy || configImportReading || Boolean(configImportResult);
+  }
+  const count = (configImportPlan?.install.length || 0) + (configImportPlan?.reuse.length || 0);
+  $('config-import-apply').disabled = busy || !state.table?.write_allowed || !configImportPlan || !count;
+  $('config-import-apply').hidden = Boolean(configImportResult);
+  if (!busy) $('config-import-apply').textContent = count ? `导入 ${count} 个` : '导入';
+  $('config-import-close').disabled = busy;
+  $('config-import-retry').disabled = busy || configImportReading;
+  $('config-import-undo').disabled = busy || !state.table?.write_allowed;
+  $('config-import-undo').hidden = !configImportResult?.id;
+}
+
+function renderConfigImportReview(plan, done = false) {
+  const items = names => names.map(name => ({name, note: [
+    (plan.assignments[name] || []).map(nameOf).join('、'),
+    plan.dependencies[name]?.length ? `补上所需技能：${plan.dependencies[name].join('、')}` : '',
+  ].filter(Boolean).join('；')}));
+  $('config-import-review').innerHTML = [
+    [done ? '新装好了' : '将安装', items(plan.install)],
+    ['沿用本机', items(plan.reuse)],
+    ['待补齐，本次跳过', plan.skipped.map(row => ({name: row.name, note: row.reason}))],
+  ].filter(([, rows]) => rows.length).map(([label, rows]) =>
+    `<details class="fold fold-inner" ${rows.length <= CONFIRM_FOLD ? 'open' : ''}>
+      <summary>${escape(label)} ${rows.length} 个</summary><ul class="confirm-items">${confirmItems(rows)}</ul>
+    </details>`).join('') + (plan.unmapped_agents.length
+      ? `<p class="muted">这些 agent 还没接入，${done ? '相应分配未导入' : '可在上方指定接收方'}：${escape(plan.unmapped_agents.map(nameOf).join('、'))}。</p>` : '');
+}
+
+async function previewConfigImport() {
+  if (!configImportData) return;
+  const sequence = ++configImportSequence;
+  configImportPlan = null;
+  configImportReading = true;
+  $('config-import-review').replaceChildren();
+  $('config-import-retry').hidden = true;
+  $('config-import-message').textContent = '正在核对配置…';
+  renderConfigImportControls();
+  try {
+    const plan = await api('/api/config/preview', {config: configImportData, agents: configImportAgents()});
+    if (sequence !== configImportSequence) return;
+    configImportPlan = plan;
+    $('config-import-message').textContent = plan.message + (state.table?.write_allowed ? '。' : '。当前为只读模式，只能预览。');
+    renderConfigImportReview(plan);
+  } catch (error) {
+    if (sequence !== configImportSequence) return;
+    $('config-import-message').textContent = error.message;
+    $('config-import-retry').hidden = false;
+  } finally {
+    if (sequence === configImportSequence) {
+      configImportReading = false;
+      renderConfigImportControls();
+    }
+  }
+}
+
+$('config-import').addEventListener('click', () => {
+  configImportSequence++;
+  configImportData = configImportPlan = configImportResult = null;
+  configImportReading = false;
+  $('config-import-title').textContent = '导入技能配置';
+  $('config-import-file').value = '';
+  $('config-import-agent').innerHTML = '<option value="">按配置中的分配</option>' + state.agents.map(agent =>
+    `<option value="${escape(agent.id)}">全部给 ${escape(agent.name)}</option>`).join('');
+  $('config-import-message').textContent = '选好文件后，先核对可导入和待补齐的技能。';
+  $('config-import-review').replaceChildren();
+  $('config-import-retry').hidden = true;
+  renderConfigImportControls();
+  $('config-import-dialog').showModal();
+});
+
+$('config-import-file').addEventListener('change', async event => {
+  const sequence = ++configImportSequence;
+  const file = event.target.files[0];
+  configImportData = configImportPlan = null;
+  configImportReading = true;
+  $('config-import-review').replaceChildren();
+  $('config-import-retry').hidden = true;
+  $('config-import-message').textContent = file ? '正在读取文件…' : '请先选择配置文件。';
+  renderConfigImportControls();
+  try {
+    if (!file) return;
+    if (file.size > 1024 * 1024) throw new Error('配置文件太大，请使用 Skill Pilot 导出的技能清单。');
+    const text = await file.text();
+    if (sequence !== configImportSequence) return;
+    try { configImportData = JSON.parse(text); }
+    catch { throw new Error('配置文件没能读懂，请选择 Skill Pilot 导出的文件。'); }
+    if (!configImportData || typeof configImportData !== 'object' || Array.isArray(configImportData)) {
+      configImportData = null;
+      throw new Error('这不是 Skill Pilot 配置文件，请重新导出。');
+    }
+  } catch (error) {
+    if (sequence === configImportSequence) $('config-import-message').textContent = error.message;
+  } finally {
+    if (sequence === configImportSequence) {
+      configImportReading = false;
+      renderConfigImportControls();
+      if (configImportData !== null) await previewConfigImport();
+    }
+  }
+});
+
+$('config-import-agent').addEventListener('change', previewConfigImport);
+$('config-import-retry').addEventListener('click', previewConfigImport);
+$('config-import-close').addEventListener('click', () => $('config-import-dialog').close());
+$('config-import-dialog').addEventListener('cancel', event => { if (writeBusy) event.preventDefault(); });
+$('config-import-dialog').addEventListener('close', () => { configImportSequence++; });
+$('config-import-dialog').querySelector('form').addEventListener('submit', event => event.preventDefault());
+
+async function undoConfigImport(result, button) {
+  if (await undoOperation(result.id, {skills: [...result.install, ...result.reuse], message: result.message, button})) {
+    if (result === configImportResult) $('config-import-dialog').close();
+  }
+}
+
+$('config-import-undo').addEventListener('click', event => undoConfigImport(configImportResult, event.currentTarget));
+$('config-import-apply').addEventListener('click', async event => {
+  if (!configImportPlan || writeBusy) return;
+  const plan = configImportPlan;
+  await runWrite({
+    button: event.currentTarget, busyText: '正在下载并导入…',
+    onError: error => {
+      configImportPlan = null;
+      $('config-import-message').textContent = error.message;
+      $('config-import-retry').hidden = false;
+      renderConfigImportControls();
+    },
+    work: async () => {
+      const result = await api('/api/config/apply', {config: configImportData, agents: configImportAgents(), revision: plan.revision, confirmed: true});
+      configImportResult = result;
+      $('config-import-title').textContent = '导入结果';
+      $('config-import-message').textContent = result.message + (result.complete ? '。' : '。未完成项见下方明细。');
+      renderConfigImportReview({...plan, ...result}, true);
+      await refreshEverything();
+      return result;
+    },
+    success: result => ({text: result.complete ? result.message : '可用部分已处理，未完成项见导入结果。',
+      undo: result.id ? button => undoConfigImport(result, button) : null}),
+  });
+});
 
 function llmBody() {
   return {provider: $('llm-provider').value, base_url: $('llm-base-url').value, model: $('llm-model').value};

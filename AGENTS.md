@@ -43,4 +43,4 @@
 
 ## Git
 
-本仓库连接 GitHub 私有仓库 [Simonlau4/skill-pilot](https://github.com/Simonlau4/skill-pilot)。只在用户要求时提交或推送，只暂存本次相关文件。
+本仓库连接 GitHub 公开仓库 [Simonlau4/skill-pilot](https://github.com/Simonlau4/skill-pilot)。只在用户要求时提交或推送，只暂存本次相关文件；本机技能库、设置和密钥不上传。

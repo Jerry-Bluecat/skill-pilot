@@ -1191,6 +1191,10 @@ pre {
 .dialog-body .confirm-line { margin: var(--sp-1) 0; overflow-wrap: anywhere; }
 .dialog-body .confirm-note { color: var(--muted); font-size: var(--fs-small); }
 
+#config-import-dialog .dialog-form { display: flex; flex-direction: column; max-height: calc(100vh - 48px); }
+#config-import-dialog .dialog-form > :not(.dialog-body) { flex-shrink: 0; }
+#config-import-review { min-height: 0; flex-shrink: 1; }
+
 /* 接入核对框：每个要选的技能一行，路径用等宽小字。 */
 .join-choice { margin: var(--sp-2) 0; }
 .join-option { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; margin: var(--sp-1) 0; }
