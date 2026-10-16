@@ -444,6 +444,35 @@ class UpdateWebTests(unittest.TestCase):
         self.assertTrue(row['has_update'])
         self.assertEqual(row['status'], '有更新')
 
+    def test_undoing_a_later_assignment_does_not_restore_the_update_mark(self):
+        self.request('/api/updates/check', {})
+        review = self.wait_review()
+        status, updated = self.request('/api/updates/apply', {
+            'review_id': review['id'], 'skills': ['sample'], 'confirmed': True})
+        self.assertEqual(status, 200, updated)
+        _, table = self.request('/api/table')
+        status, assigned = self.request('/api/assignment/apply', {
+            'changes': [{'skill': 'sample', 'agent': 'claude', 'enabled': True}],
+            'revision': table['revision'], 'confirmed': True})
+        self.assertEqual(status, 200, assigned)
+        self.assertNotEqual(assigned['id'], updated['id'])
+        _, table = self.request('/api/table')
+        status, undone = self.request('/api/undo', {
+            'id': assigned['id'], 'revision': table['revision'], 'confirmed': True})
+        self.assertEqual(status, 200, undone)
+        _, progress = self.request('/api/updates/progress')
+        row = next(item for item in progress['skills'] if item['name'] == 'sample')
+        self.assertFalse(row['has_update'])
+        self.assertEqual(row['status'], '已更新')
+        _, table = self.request('/api/table')
+        status, undone = self.request('/api/undo', {
+            'id': updated['id'], 'revision': table['revision'], 'confirmed': True})
+        self.assertEqual(status, 200, undone)
+        _, progress = self.request('/api/updates/progress')
+        row = next(item for item in progress['skills'] if item['name'] == 'sample')
+        self.assertTrue(row['has_update'])
+        self.assertEqual(row['status'], '有更新')
+
     def test_merge_endpoint_is_readonly_and_needs_review_id(self):
         self.fixture.modified();before=self.fixture.fingerprint()
         _,review=self.request('/api/updates/check',{})
