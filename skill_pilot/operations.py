@@ -121,6 +121,7 @@ def table(home=None):
                      'description_tokens': listing_tokens(name, info), 'source': skill['source'],
                      'source_label': normalize(skill['source'])['label'],
                      'assigned_agents': skill['assigned_agents'], 'requires': skill.get('requires', []),
+                     'update_watch': skill.get('update_watch') or 'all',
                      'local_modified': normalization.tree(path) != normalization.tree(home / '.skill-pilot/bases' / name),
                      'cell_notes': cells[name]})
     return {'home': str(home), 'revision': revision(home, agents), 'write_allowed': write_allowed(home), 'skills': rows,

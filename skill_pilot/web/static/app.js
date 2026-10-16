@@ -1980,6 +1980,11 @@ function renderDetail() {
     <dl class="detail-list">
       <dt>从哪来</dt><dd>${escape(skill.source_label || '没记录')}</dd>
       <dt>改过没有</dt><dd>${skill.local_modified ? `${icon('edit')} 你改过${hint('你在这台电脑上改过它，更新时会问你要哪一份。')}` : `${icon('check-circle')} 没改过`}</dd>
+      <dt>更新提醒</dt><dd class="row-wrap">${['all', 'description', 'off'].map(mode => {
+        const label = {all: '照常提醒', description: '只看说明有没有变', off: '先不提醒'}[mode];
+        const on = (skill.update_watch || 'all') === mode;
+        return `<button class="btn btn-small${on ? '' : ' btn-quiet'}" data-watch="${mode}" data-watch-skill="${escape(skill.name)}" ${on || locked ? 'disabled' : ''}>${escape(label)}</button>`;
+      }).join('')}</dd>
       <dt>分组</dt><dd>${escape(groupOf(skill.name))}</dd>
     </dl>
 
@@ -2046,6 +2051,33 @@ $('detail-body').addEventListener('click', async event => {
     state.tag = button.dataset.tagPick;
     renderSkillTable();
     window.scrollTo({top: 0, behavior: 'auto'});
+    return;
+  }
+  if (button.dataset.watch) {
+    const mode = button.dataset.watch;
+    const name = button.dataset.watchSkill;
+    const words = {
+      all: '以后照常提醒有新版',
+      description: '以后只看技能说明有没有变，旁边的资料变了不提醒',
+      off: '以后检查更新时先不提醒',
+    };
+    const ok = await confirmDialog({
+      title: '更新提醒',
+      lines: [`「${titleOf(name)}」：${words[mode]}。`, '其他技能不变。'],
+      note: '可以撤销。下次检查更新时生效。',
+      okText: '保存',
+    });
+    if (!ok) return;
+    await runWrite({
+      button,
+      busyText: '正在保存…',
+      work: async () => {
+        await api('/api/updates/watch', {name, mode, revision: state.table.revision, confirmed: true});
+        await refreshEverything();
+        return true;
+      },
+      success: () => ({text: `「${titleOf(name)}」${words[mode]}`}),
+    });
     return;
   }
   if (await handleUpdateButton(button)) return;

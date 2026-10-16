@@ -145,6 +145,7 @@ def check(home=None, review=None, lock=None):
                             except ValueError:
                                 row['blocked_reason'] = '新版引用了技能文件夹外的文件，已停止安装；请先核对来源位置。'
                                 row['status'] = '有更新，需先核对来源'
+                _apply_watch(row, skill, home)
             except (ValueError, OSError, KeyError, TypeError) as error:
                 row.update(status='没查清楚', error=str(error), has_update=False)
             publish(row)
@@ -159,6 +160,49 @@ def check(home=None, review=None, lock=None):
     finally:
         with lock: result['running'] = False
     return result
+
+
+def _skill_bytes(path):
+    file = Path(path) / 'SKILL.md'
+    return file.read_bytes() if file.is_file() else None
+
+
+def _apply_watch(row, skill, home):
+    mode = skill.get('update_watch') or 'all'
+    if mode == 'all' or row.get('error'):
+        return
+    if mode == 'off':
+        row['has_update'] = False
+        row['status'] = '不提醒'
+        return
+    if mode != 'description' or not row.get('has_update') or not row.get('_upstream_path'):
+        return
+    local = home / '.skill-pilot/store' / row['name']
+    if _skill_bytes(local) == _skill_bytes(row['_upstream_path']):
+        row['has_update'] = False
+        row['status'] = '说明没变'
+
+
+WATCH_MODES = {'all': '照常提醒', 'description': '只看说明有没有变', 'off': '先不提醒'}
+
+
+def set_watch(name, mode, expected=None, home=None, confirmed=False):
+    if not confirmed:
+        raise ValueError('请先确认这个技能以后怎么提醒更新。')
+    if mode not in WATCH_MODES:
+        raise ValueError('请选择照常提醒、只看说明，或先不提醒。')
+    home, registry, agents = operations.load(home)
+    if not isinstance(name, str) or name not in registry['skills']:
+        raise ValueError('这个技能不在登记表里，请刷新后再选。')
+    def mutate(current, checked):
+        skill = current['skills'][name]
+        if mode == 'all':
+            skill.pop('update_watch', None)
+        else:
+            skill['update_watch'] = mode
+        return [name], [], {'update_watch': mode}
+    return operations._run(home, registry, agents, expected or operations.revision(home, agents),
+                           f'「{name}」的更新提醒改为{WATCH_MODES[mode]}', mutate)
 
 
 def public(review):
