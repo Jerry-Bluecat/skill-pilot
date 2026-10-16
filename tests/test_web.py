@@ -15,7 +15,7 @@ from skill_pilot.store import physical_state
 
 class WebTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="skill-pilot-web-")
+        self.temp = tempfile.TemporaryDirectory(prefix="skill pilot web ")
         self.addCleanup(self.temp.cleanup)
         set_up_home(self, self.temp.name)
         self.server = Dashboard({"read_only": True, "home": str(self.home)})
@@ -87,6 +87,13 @@ class WebTests(unittest.TestCase):
             self.assertIn(b'<svg', response.read())
         headers = {"X-Skill-Pilot-Token": self.server.token}
         self.assertEqual(self.request('/brand/../favicon.svg', headers)[0], 404)
+
+    def test_browser_favicon_ico_needs_no_token(self):
+        status, body = self.request("/favicon.ico")
+        self.assertEqual(status, 204)
+        self.assertEqual(body, b"")
+        for path in ("/", "/app.js", "/app.css", "/favicon.svg", "/api/scan", "/favicon.ico/../"):
+            self.assertEqual(self.request(path)[0], 403, path)
 
 
 class MigrationWebTests(unittest.TestCase):
