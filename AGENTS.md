@@ -17,24 +17,24 @@
 
 - 用户不是程序员。界面、确认框、报错、给用户的回复一律中文大白话，不出现 symlink、diff、git、TOML、hash 这类词。
 - 新功能先问是否服务于最初四个问题之一：各 agent 分别管技能；更新不用专门开对话；同一技能多份副本导致版本冲突；装了什么不知道、不用的占上下文。
-- **做减法**：不为假想需求加功能、加配置、加 AI 调用。只有用户在设置里填了 AI 服务的 key，才会自动调用它给技能起中文名和分组。
+- **做减法**：不为假想需求加功能、加配置、加 AI 调用。只有用户在设置里填了 AI 服务的 key，才会自动调用它给技能起中文名和分组；其余 AI 功能只做可选按钮。
 - 能由规则或证据决定的不要做成待确认项；批量操作默认全选，让用户只挑例外。
 
 ## 真实数据与安全边界
 
-- 真实数据：`~/.skill-pilot/`（`store/`、`bases/`、`registry.json`、`agents.json`、`logs/`、`backups/`、`labels.json`、含 API key 的 `settings.json`：不复制进模拟 home、不进备份和日志、不在回复、issue、PR 里出现），各 agent 的技能根目录，以及 `~/.codex/config.toml` 的 `[skills] config`。
+- 真实数据：`~/.skill-pilot/`（`store/`、`bases/`、`registry.json`、`agents.json`、`logs/`、`backups/`、`labels.json`、含 API key 的 `settings.json`：不复制进模拟 home、不进备份和日志、不在回复、issue、PR 里出现），各 agent 的技能根目录（见 `skill_pilot/profiles/catalog.json`），以及 `~/.codex/config.toml` 的 `[skills] config`。
 - 旧版留下的用量数据库只保留，不读取、改写、删除或复制进模拟 home。
 - 永远不碰：`~/.claude/skills/synced/`、`~/.codex/skills/.system/`、各家插件和内置目录、`~/.agents/.skill-lock.json`（只读）。
-- 开发和测试只用系统临时目录里的模拟 home（`scripts/make-fake-home.py`）。对真实 home 运行本工具一律带 `SKILL_PILOT_READ_ONLY=1`。
+- 开发和测试只用系统临时目录里的模拟 home（`scripts/make-fake-home.py`；`tests/__init__.py` 断言目标 home 在临时目录）。对真实 home 运行本工具一律带 `SKILL_PILOT_READ_ONLY=1`。
 - 对真实技能库做分配、更新、清理、改来源、撤销，必须是用户在当次对话里明确要求的；优先让用户自己在看板上点。
 - 不要结束或干扰用户正在运行的看板进程。不运行 `lark-cli update`、`npx skills`，不执行任何技能里的脚本。
-- 动真实环境前后各取一次指纹，用 `~/.skill-pilot/logs/` 区分用户自己在看板上的操作。
+- 动真实环境前后各取一次指纹（`skill_pilot/profiles/catalog.json` 所列技能根的条目与链接目标、`~/.skill-pilot/` 文件、Codex 配置、来源记录），用 `~/.skill-pilot/logs/` 区分用户自己在看板上的操作。
 
 ## 运行与测试
 
 - 使用 Python 3.11.4 以上，只用标准库，不把某台电脑上的解释器位置写死。
 - 全量测试：`PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -q`。前端改动另跑 `node --check skill_pilot/web/static/app.js`。
-- 启动器与命令行入口：`sh scripts/build-app.sh`（不要在副本里运行）。
+- 启动器与命令行入口：`sh scripts/build-app.sh`（不要在副本里运行，会把用户的启动器改成指向副本）。
 
 ## 结构速览
 
@@ -58,8 +58,8 @@
 - **一个 issue 一个分支一个 PR**：分支名为 `负责人/issue-编号-简述`，如 `cloud/issue-4-favicon`。没有对应 issue 的改动先开 issue。
 - **先认领再动手**：以 issue 上的 `owner:` 标签为准。同一块文件区域同一时间只交给一个 agent；要改别人正在做的区域，先在 issue 里说明并等对方合并。issue 里写明先后顺序的，按顺序做。
 - **开 PR 前先跟上 main**：把最新 main 普通合并进分支解决冲突，跑全量测试（前端改动另跑页面脚本检查），再开 PR。PR 说明用中文大白话写改了什么、怎么验收，并写 `Closes #编号`。
-- **交接文件不进 PR**：`docs/handoff-*.md` 这类交接笔记，合并前从 PR 里删掉。
-- **合并**：代码 PR 须用户批准才能合并；只改文档、规则的小改动审查通过后，项目经理可直接合并。仓库用压缩合并。不改写已推送的历史，不强推。
+- **交接文件不进 PR**：交接用的 `docs/handoff-*.md` 合并前删掉。这条只约束新的 PR；main 上已有的旧交接文件保留。
+- **合并**：代码 PR 须用户批准才能合并；只改文档、规则的小改动审查通过后，项目经理可直接合并（Simon 于 2026-10-16 确认）。仓库用压缩合并。不改写已推送的历史，不强推。
 - **不泄露本机信息**：提交使用 GitHub 隐私邮箱；代码、文档、issue、PR 里不写本机绝对路径、个人目录或用户名。本机技能库、设置和密钥不上传。只暂存本次相关文件。
 
 ### 项目文件夹与副本（本机 agent）
@@ -76,6 +76,6 @@
   SKILL_PILOT_HOME="$FAKE" BROWSER=/usr/bin/true python3 -m skill_pilot ui --json
   ```
 
-  对照真实技能库时只能只读打开：`SKILL_PILOT_READ_ONLY=1 TMPDIR="$(mktemp -d)" BROWSER=/usr/bin/true python3 -m skill_pilot ui --json`。看完结束自己开的看板。
+  对照真实技能库时只能只读打开：`SKILL_PILOT_READ_ONLY=1 TMPDIR="$(mktemp -d)" BROWSER=/usr/bin/true python3 -m skill_pilot ui --json`。单独的临时目录避开用户看板的启动锁，`BROWSER` 防止弹开用户的浏览器。看完结束自己开的看板。
 - **清理**：PR 合并或关闭后，删掉自己的副本和本地分支（`git worktree remove`、`git branch -D`；仓库用压缩合并，先用 `gh pr view` 确认状态）。
 - 云端 agent 不接触本机文件夹，用 `cloud/` 分支前缀。
