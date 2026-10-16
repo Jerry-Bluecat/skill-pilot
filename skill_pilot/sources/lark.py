@@ -2,7 +2,6 @@
 import hashlib
 import io
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -13,17 +12,22 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from ..environment import tool_environment
 from ..scan import metadata
-from ..store import guard
+from ..store import guard, target_home
 from .github import safe_skill
 
-CLI = '/Users/j/.local/bin/lark-cli'
 CLI_PATHS = ['.local/lib/node_modules/@larksuite/cli', '.local/bin/lark-cli']
 
 
-def check(timeout=60):
+def check(timeout=60, home=None):
+    env = tool_environment(target_home() if home is None else home)
+    executable = shutil.which('lark-cli', path=env['PATH'])
+    if not executable:
+        raise ValueError('找不到飞书工具，请先按安装说明安装，再重新检查更新。')
     try:
-        result = subprocess.run([CLI, 'update', '--check', '--json'], capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run([executable, 'update', '--check', '--json'], env=env,
+                                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
         data = json.loads(result.stdout)
     except (OSError, ValueError, subprocess.TimeoutExpired) as error:
         raise ValueError('飞书版本没能查到，请稍后重试。') from error
@@ -80,18 +84,26 @@ def install_cli(home, version, checked):
     guard(home / '.skill-pilot', home)
     if not re.fullmatch(r'\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?', version):
         raise ValueError('飞书版本号不正确。')
+    env = tool_environment(home)
+    if not all(shutil.which(name, path=env['PATH']) for name in ('node', 'npm')):
+        raise ValueError('飞书更新需要 Node.js 和 npm，请按安装说明装好后重试。这组技能保持原样。')
     # Package lifecycle code can only see this isolated home and prefix. It
     # never receives an agent root or the user's npm configuration.
     with tempfile.TemporaryDirectory(prefix='skill-pilot-lark-install-') as temporary:
         root = Path(temporary)
-        env = {k: v for k, v in os.environ.items() if not k.lower().startswith(('npm_config_', 'pnpm_'))}
+        env = {k: v for k, v in env.items() if not k.lower().startswith(('npm_config_', 'pnpm_'))}
         env.update(HOME=str(root), npm_config_prefix=str(root / 'prefix'), npm_config_cache=str(root / 'cache'),
-                   npm_config_userconfig=os.devnull, npm_config_globalconfig=os.devnull,
+                   npm_config_userconfig=str(root / 'user.npmrc'), npm_config_globalconfig=str(root / 'global.npmrc'),
                    XDG_CONFIG_HOME=str(root / '.config'), XDG_STATE_HOME=str(root / '.state'))
         result = subprocess.run(['npm', 'install', '-g', '@larksuite/cli@' + version],
                                 cwd=root, env=env, stdin=subprocess.DEVNULL, capture_output=True, timeout=300)
         if result.returncode:
-            raise ValueError('飞书工具安装没有完成，技能保持原样。')
+            error = result.stderr.decode(errors='replace')
+            reason = ('安装设置互相冲突' if 'double-loading config' in error else
+                      '下载没有成功，请检查网络后重试' if any(code in error for code in
+                          ('ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED')) else
+                      '安装程序报错，请稍后重试')
+            raise ValueError('飞书工具' + reason + '。这组技能保持原样。')
         package = root / 'prefix/lib/node_modules/@larksuite/cli'
         if json.loads((package / 'package.json').read_text())['version'] != version:
             raise ValueError('飞书工具版本没有核对通过，技能保持原样。')

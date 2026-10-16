@@ -104,7 +104,7 @@ def check(home=None, review=None, lock=None):
         packages, failure = {}, None
         if group == 'lark':
             try:
-                result['lark'] = {**lark.check(timeout=reader.remaining()), 'skill_count': len(items)}
+                result['lark'] = {**lark.check(timeout=reader.remaining(), home=home), 'skill_count': len(items)}
                 if result['lark']['available']:
                     packages = lark.prepare({n: s for n, _, s in items}, temporary, result['lark']['latest_version'], reader.deadline)
             except (ValueError, OSError, KeyError, TypeError) as error:
@@ -251,19 +251,52 @@ def _validate_name(incoming, local):
 def apply(review, names, choices=None, confirmed=False, merge_ids=None, confirm_lark=False):
     if not confirmed:
         raise ValueError('请先核对选中的更新，再确认执行。')
-    home, registry, agents = operations.load(review['home'])
+    home, _, _ = operations.load(review['home'])
     # Check before any preparation or CLI subprocess can write.
     from .store import guard
     guard(home / '.skill-pilot', home)
     names = sorted(set(names)); choices, merge_ids = choices or {}, merge_ids or {}
     if not names:
         raise ValueError('请先勾选要更新的技能。')
+    by_name = {row['name']: row for row in review['skills']}
+    lark_names = {name for name in names if by_name.get(name, {}).get('source', {}).get('kind') == 'lark'}
+    if lark_names:
+        all_lark = {n for n, _, _ in review['_groups']['lark']}
+        if lark_names != all_lark or not confirm_lark:
+            raise ValueError('飞书技能需要一起更新，并单独确认同时升级 lark-cli。')
+    # Each independent update keeps its own backup and undo record. A failed
+    # group is restored by _run before the next group starts.
+    groups = [[name] for name in names if name not in lark_names]
+    if lark_names:
+        groups.append(sorted(lark_names))
+    completed, failed, updated, normalization_results = [], [], [], {}
+    for group in groups:
+        try:
+            result = _apply_group(review, group, choices, merge_ids)
+        except operations.RollbackError:
+            raise
+        except (ValueError, OSError) as error:
+            if len(names) == 1:
+                raise
+            reason = str(error) if isinstance(error, ValueError) else '这项更新的文件没能读写，请重新检查更新后再试。'
+            for name in group:
+                failed.append({'name': name, 'error': reason})
+                if name in by_name:
+                    by_name[name].update(update_error=reason, status='没更新')
+        else:
+            completed.append({**result, 'skills': group})
+            updated.extend(group)
+            normalization_results.update(result['normalization'])
+    message = f'已更新 {len(updated)} 个技能' + (f'，{len(failed)} 个没更新，请查看原因。' if failed else '。')
+    return {**(completed[0] if len(completed) == 1 else {}),
+            'updated': updated, 'failed': failed, 'operations': completed, 'complete': not failed,
+            'normalization': normalization_results, 'message': message}
+
+
+def _apply_group(review, names, choices, merge_ids):
+    home, registry, agents = operations.load(review['home'])
     rows = [selected_row(review, name) for name in names]
     lark_rows = [r for r in rows if r['source']['kind'] == 'lark']
-    if lark_rows:
-        all_lark = {n for n, _, _ in review['_groups']['lark']}
-        if {r['name'] for r in lark_rows} != all_lark or not confirm_lark:
-            raise ValueError('飞书技能需要一起更新，并单独确认同时升级 lark-cli。')
     content = []
     for row in rows:
         if row.get('blocked_reason'):
@@ -324,6 +357,7 @@ def apply(review, names, choices=None, confirmed=False, merge_ids=None, confirm_
     result = operations._run(home, registry, agents, current_registry, f'核对并更新了 {len(names)} 个技能', mutate,
                              extra_paths=lark.CLI_PATHS if lark_rows else None)
     for row in rows:
+        row.pop('update_error', None)
         row.update(has_update=False, status='已保留我的' if row['_choice'] == 'keep' else '已更新')
     review['update_count'] = sum(r['has_update'] for r in review['skills'])
     return result

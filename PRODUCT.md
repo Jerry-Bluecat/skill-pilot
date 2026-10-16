@@ -2,7 +2,7 @@
 
 <!-- impeccable:product-schema 1 -->
 
-依据 AGENTS.md、docs/STATUS.md 和用户在对话里的说法整理（2026-10-13）；标“推断”的还没跟用户确认。
+依据 AGENTS.md、docs/STATUS.md 和用户在对话里的说法整理（2026-10-15 更新）；标“推断”的还没跟用户确认。
 
 ## Platform
 
@@ -10,7 +10,7 @@ web
 
 ## Users
 
-一位不写代码的使用者，在自己的 Mac 上同时用 Codex、Claude、Antigravity、DSH、Zcode 等多个 agent，技能 130 个左右。通常是开完几轮 agent 对话后，花几分钟集中整理：给哪个 agent 加上或撤下技能、检查更新、清理不用的。看不懂文件路径和技术说法，也不想逐条确认。
+在自己的 Mac 上使用多个 agent、希望集中管理技能的桌面用户，包括从 GitHub 获取项目的使用者。用户可以不写代码，技能数量、agent 组合、用户名和安装位置各不相同。常见任务是给 agent 加上或撤下技能、检查更新、清理不用的；操作应直接易懂，避免逐条确认。维护者的电脑是验证样本，不是产品适用边界。
 
 ## Product Purpose
 
@@ -22,8 +22,8 @@ web
 
 ## Operating Context
 
-- 双击 `~/Applications/Skill Pilot.app`，在 Chrome 里打开本机看板，常常一开很久。
-- 数据在 `~/.skill-pilot/`，各 agent 的技能文件夹指向这一份。
+- 当前面向 macOS 本地桌面，按公开步骤安装后，通过应用或命令行在本机浏览器打开看板。
+- 数据在当前用户的 `~/.skill-pilot/`，已接入 agent 的技能文件夹指向这一份；每位用户使用自己的技能库和设置。
 - 推断：可能在国内网络下使用，界面不依赖外网字体或外部资源。
 
 ## Capabilities and Constraints
@@ -35,6 +35,7 @@ web
 
 ## Product Principles
 
+- 最高准则是 [通用化与可复现](AGENTS.md#最高准则通用化与可复现)，所有后续修改和验收均遵守。
 - 做减法：不为假想的需求加功能、加配置。
 - 说结果，不说机制：界面里不出现路径、链接、仓库这类说法，技术细节收进“诊断与备份”。
 - 能由规则决定的不做成确认；批量操作默认全选，只让用户挑例外。

@@ -438,7 +438,7 @@ input[type="checkbox"]:disabled { cursor: default; }
 .updates-status .ico-up { color: var(--info-ink); }
 /* 技能页工具栏要在 1280 宽的窗口里排成一行，搜索框允许窄一点。 */
 #skills-search { min-width: 150px; }
-.failed-list { margin: calc(var(--sp-2) * -1) 0 var(--sp-3); padding: var(--sp-2) var(--sp-4); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: var(--fs-small); color: var(--ink-2); }
+.failed-list { margin: calc(var(--sp-2) * -1) 0 var(--sp-3); padding: var(--sp-2) var(--sp-4); max-height: 240px; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: var(--fs-small); color: var(--ink-2); }
 .failed-list p { margin: var(--sp-1) 0; overflow-wrap: anywhere; }
 
 /* 技能页的筛选：分组一排，标签一排，都是单选，再点一次回到全部。 */

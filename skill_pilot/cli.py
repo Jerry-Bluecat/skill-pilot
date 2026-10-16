@@ -1,15 +1,18 @@
 import argparse
 import json
+import os
 import shutil
 import tempfile
 from pathlib import Path
 
 from .scan import scan
-from .store import apply, backups, preview, restore
+from .store import apply, backups, preview, restore, target_home
+from .environment import tool_environment
 from . import operations
 
 
 def main():
+    os.environ['PATH'] = tool_environment(target_home())['PATH']
     parser = argparse.ArgumentParser(description="Skill Pilot：本机技能管理")
     commands = parser.add_subparsers(dest="command", required=True)
     inventory = commands.add_parser("scan", help="盘点本机 agent 和技能")
@@ -162,7 +165,6 @@ def main():
                     raise ValueError('合并预览编号不正确。')
                 directory = Path(tempfile.gettempdir()) / args.review
                 review = json.loads((directory / 'review.json').read_text())
-                from .store import target_home
                 if review['home'] != str(target_home()) or Path(review['temporary']).resolve() != directory.resolve():
                     raise ValueError('这份合并预览不属于当前目录。')
             else:
@@ -198,12 +200,16 @@ def main():
                     print(error['name'] + '：' + error['error'])
             else:
                 print(result['message'])
+                for failed in result.get('failed', []):
+                    print(failed['name'] + '：' + failed['error'])
                 for merge in result.get('merges', []):
                     print(merge['name'] + '：' + merge['explanation'] + '\n' + merge['comparison'])
                     print('--review ' + result['review_id'] + ' --merge-id ' + merge['name'] + '=' + merge['merge_id'])
             if result.get('needs_confirmation'):
                 raise SystemExit(2)
             if args.command == 'check-updates' and result['errors']:
+                raise SystemExit(1)
+            if args.command == 'update' and result.get('failed'):
                 raise SystemExit(1)
         except (ValueError, OSError, KeyError, TypeError) as error:
             fail(error)

@@ -295,7 +295,8 @@ class LarkTests(unittest.TestCase):
     def test_latest_and_update_available(self):
         for action in ['already_up_to_date', 'update_available']:
             stdout=json.dumps({'ok': True, 'action': action, 'current_version': '1.0.97', 'latest_version': '1.0.98'})
-            with patch.object(lark.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, stdout, '')) as fake:
+            with patch.object(lark.shutil, 'which', return_value='/temporary user/bin/lark-cli'), \
+                    patch.object(lark.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, stdout, '')) as fake:
                 data = lark.check()
                 self.assertEqual(data['available'], action == 'update_available')
                 self.assertEqual(fake.call_args.args[0][-3:], ['update', '--check', '--json'])
@@ -398,7 +399,7 @@ class UpdateWebTests(unittest.TestCase):
         request = urllib.request.Request(self.server.origin+path,data=json.dumps(body).encode() if body is not None else None,headers={
             'X-Skill-Pilot-Token':self.server.token,'Origin':self.server.origin,'Content-Type':'application/json'})
         try:
-            with urllib.request.urlopen(request) as r: return r.status,json.load(r)
+            with urllib.request.urlopen(request, timeout=3) as r: return r.status,json.load(r)
         except urllib.error.HTTPError as e: return e.code,json.load(e)
 
     def wait_review(self):

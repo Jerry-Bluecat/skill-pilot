@@ -411,6 +411,7 @@ async function heartbeat() {
    button 是触发这次撤销的那个按钮（提示条上的或操作记录里的），由 runWrite 负责忙碌态。
    返回 false 表示用户取消了。 */
 async function undoOperation(id, {skills = [], message = '', button = null} = {}) {
+  const ids = Array.isArray(id) ? id : [id];
   const ok = await confirmDialog({
     title: '撤销这次操作',
     lines: [message ? `要撤销的是：${message}` : '会恢复相应的技能内容、分配入口和工具添加的停用设置。'],
@@ -423,9 +424,21 @@ async function undoOperation(id, {skills = [], message = '', button = null} = {}
     button,
     busyText: '正在撤销…',
     work: async () => {
-      const table = await api('/api/table');
-      await api('/api/undo', {id, revision: table.revision, confirmed: true});
-      await refreshEverything();
+      const history = ids.length > 1 ? await api('/api/log') : [];
+      let done = 0;
+      try {
+        for (const operationId of ids) {
+          if (history.some(record => record.id === operationId && record.undone)) continue;
+          const table = await api('/api/table');
+          await api('/api/undo', {id: operationId, revision: table.revision, confirmed: true});
+          done++;
+        }
+      } catch (error) {
+        if (done) error.message = `已撤销 ${done} 项，其余还没撤销：${error.message}`;
+        throw error;
+      } finally {
+        await refreshEverything();
+      }
       return true;
     },
     success: () => ({text: '已经撤销这次操作'}),
@@ -2246,6 +2259,10 @@ function renderUpdateBar() {
   const waiting = rows.filter(row => row.has_update);
   const batch = waiting.filter(row => !row.blocked_reason);
   const failed = rows.filter(row => row.error);
+  const notUpdated = rows.filter(row => row.update_error || (row.has_update && row.blocked_reason));
+  const problems = [...failed, ...notUpdated];
+  const failureCounts = [failed.length ? `${failed.length} 个没查成` : '',
+    notUpdated.length ? `${notUpdated.length} 个没更新` : ''].filter(Boolean).join('，');
 
   const check = $('updates-check');
   check.disabled = checking || Boolean(writeBusy);
@@ -2264,10 +2281,10 @@ function renderUpdateBar() {
     : waiting.length ? (batch.length ? '' : `<span>${icon('update-up', 'ico-up')}${waiting.length} 个有新版</span>`)
     : `<span>${icon('check-circle', 'ico-ok')}${failed.length ? '没发现新版' : '都是最新的'}</span>`;
   $('updates-status').innerHTML = status
-    + (failed.length && !checking ? `<button class="link-btn" data-failed-toggle aria-expanded="${updateState.failedOpen}">${icon('warning')}${failed.length} 个没查成</button>` : '');
+    + (problems.length && !checking ? `<button class="link-btn" data-failed-toggle aria-expanded="${updateState.failedOpen}">${icon('warning')}${failureCounts}</button>` : '');
   const panel = $('updates-failed');
-  panel.hidden = !failed.length || checking || !updateState.failedOpen;
-  panel.innerHTML = failed.map(row => `<p><strong>${nameHtml(row.name)}</strong>：${escape(String(row.error).slice(0, 60))}</p>`).join('');
+  panel.hidden = !problems.length || checking || !updateState.failedOpen;
+  panel.innerHTML = problems.map(row => `<p><strong>${nameHtml(row.name)}</strong>：${escape(row.error || row.update_error || row.blocked_reason)}</p>`).join('');
 }
 
 $('updates-status').addEventListener('click', event => {
@@ -2432,7 +2449,11 @@ async function applyUpdates(names, button = null) {
     choices[name] = choice;
     if (choice === 'merge') {
       const merge = updateState.merges.get(name);
-      if (!merge?.accepted) { toast({text: `「${titleOf(name)}」：请先生成合并结果，并确认已看过。`, tone: 'error', sticky: true}); return null; }
+      if (!merge?.accepted) {
+        if (names.length > 1) continue;
+        toast({text: `「${titleOf(name)}」：请先生成合并结果，并确认已看过。`, tone: 'error', sticky: true});
+        return null;
+      }
       mergeIds[name] = merge.id;
     }
   }
@@ -2440,7 +2461,8 @@ async function applyUpdates(names, button = null) {
     const items = names.map(name => {
       const row = updateState.rows.get(name);
       const notes = [
-        choices[name] === 'keep' ? '保留我的' : choices[name] === 'merge' ? '用已核对的合并结果'
+        choices[name] === 'keep' ? '保留我的' : choices[name] === 'merge'
+          ? mergeIds[name] ? '用已核对的合并结果' : '合并结果尚未确认，本次会跳过'
           : row.local_modified ? '你改过，会换成新版' : row.baseline_uncertain ? '不确定你改没改过，会换成新版' : '',
         row.script_files?.length ? '脚本有变化' : '',
         row.source?.kind === 'lark' ? '飞书技能，整组一起更新' : '',
@@ -2449,7 +2471,7 @@ async function applyUpdates(names, button = null) {
     });
     const ok = await confirmDialog({
       title: '更新这些技能',
-      lines: [`会把 ${names.length} 个技能更新到新版。`, lark ? '飞书技能要整组一起更新，会同时升级 lark-cli 和全部飞书技能。' : ''],
+      lines: [`会尝试更新 ${names.length} 个技能，没成功的会列出原因，其他技能继续更新。`, lark ? '飞书技能要整组一起更新，会同时升级飞书工具和全部飞书技能。' : ''],
       groups: [{label: `更新 ${names.length} 个技能`, items}],
       note: '更新后可以撤销。', okText: '更新',
     });
@@ -2466,15 +2488,22 @@ async function applyUpdates(names, button = null) {
         review_id: review.id, skills: names, choices, merge_ids: mergeIds,
         confirm_lark_cli: lark, confirmed: true,
       });
+      if (written.failed?.length) updateState.failedOpen = true;
       await refreshEverything();
       await refreshUpdates();
       return written;
     },
-    success: written => ({
-      text: names.length > 1 ? `${names.length} 个技能已更新到新版`
-        : choices[names[0]] === 'keep' ? `「${titleOf(names[0])}」保留了你的版本` : `「${titleOf(names[0])}」已更新到新版`,
-      undo: undoButton => undoOperation(written.id, {skills: names, message: written.message, button: undoButton}),
-    }),
+    success: written => {
+      const updated = written.updated || names;
+      const ids = written.operations ? written.operations.map(operation => operation.id).reverse() : [written.id];
+      return {
+        text: written.failed?.length ? written.message : names.length > 1 ? `${updated.length} 个技能已更新到新版`
+          : choices[names[0]] === 'keep' ? `「${titleOf(names[0])}」保留了你的版本` : `「${titleOf(names[0])}」已更新到新版`,
+        tone: written.failed?.length ? 'error' : 'ok',
+        sticky: Boolean(written.failed?.length),
+        undo: updated.length && ids.length ? undoButton => undoOperation(ids, {skills: updated, message: written.message, button: undoButton}) : null,
+      };
+    },
   });
   updateState.busy = false;
   renderUpdateBar();
@@ -2966,6 +2995,28 @@ function renderFooter() {
   $('footer-time').textContent = generated ? `盘点于 ${new Date(generated).toLocaleString('zh-CN')}` : '';
 }
 
+async function refreshProgram() {
+  const response = await fetch('/api/runtime/refresh', {method: 'POST', headers});
+  if (response.status === 404 || response.status === 405) {
+    toast({text: '本次需要关闭全部看板页面后重开一次，以后程序更新只需刷新。', tone: 'error', sticky: true});
+    return true;
+  }
+  const change = await response.json();
+  if (!response.ok) throw new Error(change.error);
+  if (!change.supported || !change.changed) return true;
+  setTask('program', {text: change.busy ? '等当前操作完成后，自动应用新版…' : '正在应用新版…'});
+  for (;;) {
+    await new Promise(resolve => setTimeout(resolve, 400));
+    let status;
+    try { status = await api('/api/status'); } catch { continue; }
+    if (status.reload_error) throw new Error(status.reload_error);
+    if (status.version !== change.version || !status.reloading) {
+      location.reload();
+      return false;
+    }
+  }
+}
+
 async function start() {
   const [startPage, startAgent] = location.hash.slice(1).split('/');
   if (startAgent) state.agent = decodeURIComponent(startAgent);
@@ -2975,6 +3026,12 @@ async function start() {
   addEventListener('pagehide', () => {
     fetch('/api/heartbeat?closing=1&page=' + pageId, {method: 'POST', headers, keepalive: true}).catch(() => {});
   });
+  try {
+    if (!await refreshProgram()) return;
+  } catch (error) {
+    setTask('program', {text: error.message || '新版没能应用，请刷新重试。', tone: 'error', retry: () => location.reload()});
+    return;
+  }
   renderAgentSummary();
   renderSkillTable();
   renderTasks();

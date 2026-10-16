@@ -19,6 +19,10 @@ from . import labels, normalization
 DEPENDENCY_DECISIONS = PROJECT / 'docs/dependency-decisions.json'
 
 
+class RollbackError(ValueError):
+    """A failed operation could not be restored; later writes must stop."""
+
+
 def curated_dependencies():
     """agent 已判定的依赖（用户不逐条确认）：只读取已确认依赖；正文猜测和否定建议不再参与。"""
     if not DEPENDENCY_DECISIONS.is_file():
@@ -306,7 +310,10 @@ def _run(home, registry, agents, expected, message, mutation, undo_of=None, extr
             write_json(home / '.skill-pilot/logs' / (commit + '.json'), record, checked)
             return {**result, 'id': commit, 'message': message, 'backup_id': snapshot['backup_id']}
         except Exception as error:
-            _restore(home, snapshot['backup_id'], checked)
+            try:
+                _restore(home, snapshot['backup_id'], checked)
+            except Exception as rollback:
+                raise RollbackError('这项操作没能完全恢复，后续更新已停止，请先用备份还原。') from rollback
             if isinstance(error, ValueError):
                 raise
             raise ValueError('操作没能完成，已经自动恢复原样。') from error

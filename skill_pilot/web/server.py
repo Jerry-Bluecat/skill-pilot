@@ -6,6 +6,7 @@ import json
 import os
 import secrets
 import shutil
+import socket
 import tempfile
 import threading
 import time
@@ -21,6 +22,7 @@ from ..store import SKIP_CONTENT, apply, backups, guard, preview, restore, targe
 from .. import operations, updates, cleanup, labels, sharing
 from .. import agents as agent_management
 from ..sources import github
+from . import runtime
 
 STATIC = Path(__file__).parent / "static"
 HEARTBEAT_TIMEOUT = 30
@@ -32,35 +34,102 @@ OPEN_PAGE_TIMEOUT = 24 * 3600
 class Dashboard(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, inventory):
-        self.token = secrets.token_urlsafe(32)
+    def __init__(self, inventory, resume=None):
+        session = resume or {}
+        self.token = session.get('token', secrets.token_urlsafe(32))
         self.inventory = inventory
         self.home = Path(inventory.get("home", target_home()))
-        self.install_reviews = {}
-        self.update_reviews = {}
+        self.install_reviews = session.get('install_reviews', {})
+        self.update_reviews = session.get('update_reviews', {})
         self.update_lock = threading.Lock()
         self.update_thread = None
         self.labels_lock = threading.Lock()
         self.labels_thread = None
-        self.labels_progress = {'running': False, 'done': 0, 'total': 0, 'message': '', 'error': ''}
+        self.labels_progress = session.get('labels_progress', {'running': False, 'done': 0, 'total': 0, 'message': '', 'error': ''})
         self.last_heartbeat = time.monotonic()
-        self.pages = set()
-        super().__init__(("127.0.0.1", 0), Handler)
+        self.pages = set(session.get('pages', []))
+        self.code_version = runtime.version()
+        self.runtime_lock = threading.Lock()
+        self.active_requests = 0
+        self.reload_callback = None
+        self.reload_pending = False
+        self.reload_error = ''
+        self.reload_thread = None
+        self.closing = False
+        super().__init__(("127.0.0.1", 0), Handler, bind_and_activate=not bool(resume))
+        if resume:
+            self.socket.close()
+            self.socket = socket.socket(fileno=resume['socket_fd'])
+            self.server_address = self.socket.getsockname()
+            self.server_name, self.server_port = self.server_address
         self.origin = f"http://127.0.0.1:{self.server_port}"
         self.url = f"{self.origin}/?token={self.token}"
 
     def server_close(self):
+        self.closing = True
         super().server_close()
         if self.update_thread: self.update_thread.join()
         if self.labels_thread: self.labels_thread.join()
+        if self.reload_thread: self.reload_thread.join()
+
+    def background_busy(self):
+        return (any(thread and thread.is_alive() for thread in (self.update_thread, self.labels_thread)) or
+                self.labels_progress['running'] or any(r['running'] for r in list(self.update_reviews.values())))
+
+    def request_reload(self):
+        changed = runtime.version() != self.code_version
+        with self.runtime_lock:
+            if not changed:
+                self.reload_pending = False
+                self.reload_error = ''
+            if changed and self.reload_callback and not self.reload_pending:
+                self.reload_pending = True
+                self.reload_error = ''
+                self.reload_thread = threading.Thread(target=self.reload_when_idle, daemon=True)
+                self.reload_thread.start()
+            return {'supported': bool(self.reload_callback), 'changed': changed,
+                    'version': self.code_version, 'busy': self.active_requests > 1 or self.background_busy()}
+
+    def reload_when_idle(self):
+        while not self.closing:
+            with self.runtime_lock:
+                if not self.reload_pending:
+                    return
+                if not self.active_requests and not self.background_busy():
+                    try:
+                        self.reload_callback()
+                    except Exception as error:
+                        self.reload_error = str(error) if isinstance(error, ValueError) else '新版没能应用，当前程序保持运行，请稍后刷新重试。'
+                    finally:
+                        self.reload_pending = False
+                    return
+            time.sleep(.05)
 
     def watch(self):
-        while time.monotonic() - self.last_heartbeat < (OPEN_PAGE_TIMEOUT if self.pages else HEARTBEAT_TIMEOUT) or self.labels_progress['running'] or any(r['running'] for r in list(self.update_reviews.values())):
+        while time.monotonic() - self.last_heartbeat < (OPEN_PAGE_TIMEOUT if self.pages else HEARTBEAT_TIMEOUT) or self.background_busy() or self.reload_pending:
             time.sleep(0.1)
         self.shutdown()
 
 
 class Handler(BaseHTTPRequestHandler):
+    def parse_request(self):
+        if not super().parse_request():
+            return False
+        # Unused browser connections must not delay applying a new program.
+        with self.server.runtime_lock:
+            self.server.active_requests += 1
+            self.counted_request = True
+        return True
+
+    def handle_one_request(self):
+        self.counted_request = False
+        try:
+            super().handle_one_request()
+        finally:
+            if self.counted_request:
+                with self.server.runtime_lock:
+                    self.server.active_requests -= 1
+
     def log_message(self, *args):
         # URLs contain a session secret; never put them in access logs.
         pass
@@ -120,7 +189,9 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, OSError, KeyError) as error:
                 self.reply(409, {'error': str(error)})
         elif path == "/api/status":
-            self.reply(200, {"pid": os.getpid(), "read_only": not preview_allowed(self.server.home)})
+            self.reply(200, {"pid": os.getpid(), "read_only": not preview_allowed(self.server.home),
+                             'version': self.server.code_version, 'reloading': self.server.reload_pending,
+                             'reload_error': self.server.reload_error})
         elif path in ("/api/migration/plan", "/api/backups", "/api/migration/compare"):
             try:
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
@@ -164,6 +235,15 @@ class Handler(BaseHTTPRequestHandler):
                 (self.server.pages.discard if query.get("closing") else self.server.pages.add)(page)
             self.server.last_heartbeat = time.monotonic()
             self.reply(200, {"ok": True})
+            return
+        if path == '/api/runtime/refresh':
+            try:
+                self.reply(200, self.server.request_reload())
+            except OSError:
+                self.reply(409, {'error': '新版还没有准备完整，请稍后刷新重试。'})
+            return
+        if self.server.reload_pending:
+            self.reply(503, {'error': '正在应用新版，请稍候再操作。'})
             return
         read_routes = {'/api/assignment/preview', '/api/cleanup/preview', '/api/install/inspect', '/api/incoming/compare',
                        '/api/updates/check', '/api/updates/explain', '/api/updates/merge', '/api/updates/calibrate',
@@ -376,26 +456,31 @@ def open_existing(lock):
 
 
 def run(json_output=False):
-    fd = os.open(lock_path(), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    resume = runtime.resume_state()
+    fd = resume['lock_fd'] if resume else os.open(lock_path(), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "r+") as lock:
         os.fchmod(lock.fileno(), 0o600)
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            if open_existing(lock):
-                print(json.dumps({"message": "已打开正在运行的看板。"}, ensure_ascii=False) if json_output else "已打开正在运行的看板。")
-                return
-            raise SystemExit("已有看板正在启动或退出，请稍后再打开。")
-        operations.bootstrap(target_home())
-        server = Dashboard(scan())
-        lock.seek(0)
-        lock.truncate()
-        json.dump({"pid": os.getpid(), "url": server.url}, lock)
-        lock.flush()
+        if not resume:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                if open_existing(lock):
+                    print(json.dumps({"message": "已打开正在运行的看板。"}, ensure_ascii=False) if json_output else "已打开正在运行的看板。")
+                    return
+                raise SystemExit("已有看板正在启动或退出，请稍后再打开。")
+            operations.bootstrap(target_home())
+        server = Dashboard(resume['inventory'] if resume else scan(), resume)
+        server.reload_callback = lambda: runtime.replace(server, lock)
+        if not resume:
+            lock.seek(0)
+            lock.truncate()
+            json.dump({"pid": os.getpid(), "url": server.url}, lock)
+            lock.flush()
         server.last_heartbeat = time.monotonic()
         threading.Thread(target=server.watch, daemon=True).start()
-        webbrowser.open(server.url)
-        print(json.dumps({"message": "看板已打开；关掉全部页面后，程序会在 30 秒内退出；正在检查更新或起中文名时，会等任务完成。", "pid": os.getpid(), "url": server.url}, ensure_ascii=False) if json_output else "看板已打开；关掉全部页面后，程序会在 30 秒内退出；正在检查更新或起中文名时，会等任务完成。", flush=True)
+        if not resume:
+            webbrowser.open(server.url)
+            print(json.dumps({"message": "看板已打开；程序更新后刷新页面即可应用。", "pid": os.getpid(), "url": server.url}, ensure_ascii=False) if json_output else "看板已打开；程序更新后刷新页面即可应用。", flush=True)
         try:
             server.serve_forever(poll_interval=0.1)
         except KeyboardInterrupt:

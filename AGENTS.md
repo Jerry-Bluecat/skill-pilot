@@ -1,6 +1,17 @@
 # Skill Pilot 项目规则
 
-给在本仓库工作的 agent（Codex、Claude 等）。开始前先读 [docs/STATUS.md](docs/STATUS.md)，需要背景时再读 [PLAN.md](PLAN.md)（需求与全部决策史，开头有 2026-10-11 的“方向调整”）。`docs/handoff-*.md`、`docs/*-report.md`、`docs/spikes.md` 是开发历史，按需查。
+给在本仓库工作的 agent（Codex、Claude 等）。开始前先读 [docs/STATUS.md](docs/STATUS.md)，需要背景时再读 [PLAN.md](PLAN.md)（需求与全部决策史，顶部注明最新生效决策）。`docs/handoff-*.md`、`docs/*-report.md`、`docs/spikes.md` 是开发历史，按需查。
+
+## 最高准则：通用化与可复现
+
+2026-10-15 用户确认：**后续所有修改、优化和修复，都以其他用户从 GitHub 获取项目后，能按公开步骤在自己的电脑上使用同等功能为标准。仅在维护者本机可用，不算完成。** 本节优先于历史计划中的“先让用户自己能用起来”等单机优先取舍；真实数据、权限和发布边界继续适用。
+
+- **按用户环境运行**：用户目录、项目位置、程序入口和依赖位置应从当前环境发现或按公开步骤配置。产品的安装、启动和更新逻辑不得依赖维护者的用户名、个人文件夹、固定安装路径或本机独有的运行时版本。
+- **依赖公开可得**：明确受支持的平台、版本要求、安装和更新步骤。需要第三方账号、授权或服务密钥的功能，由用户用自己的账号配置；不依赖维护者的私有文件或个人配置。
+- **同等功能不等于复制私人数据**：每位用户管理自己的技能库、分配和设置。维护者的技能内容、账号、密钥及本机数据不作为别人使用功能的前提，也不随项目发布。
+- **按影响范围验收**：涉及安装、启动、路径、依赖或更新的改动，必须在系统临时目录中的新模拟 home、不同项目或安装位置下验证对应流程；路径处理需覆盖含空格的情况。不能只用本机已有安装和依赖作为验证依据。界面和业务改动也应适用于不同技能清单及 agent 组合。
+- **区分本地完成与公开可用**：代码改好、本机验证通过、公开版本发布是不同状态。只有所需文件已进入公开版本，且公开步骤已验证，才能说其他用户可以获得同等功能；仍遵守仅在用户要求时提交或推送的规则。
+- **历史定制视为待修复项**：遇到与本次改动相关的本机固定条件，应按本准则消除并验证；无关问题登记到 [docs/STATUS.md](docs/STATUS.md)，不借机扩大修改范围。本准则不自动扩大平台范围；当前仍面向 macOS 本地桌面。
 
 ## 用户与方向
 
@@ -21,7 +32,7 @@
 
 ## 运行与测试
 
-- 解释器固定为 `/Users/j/.local/share/uv/python/cpython-3.11-macos-aarch64-none/bin/python3.11`（`python3` 指向 Codex 运行时，可能变化；系统 3.9 没有 `tomllib`）。只用标准库。
+- 当前维护环境的开发验收解释器固定为 `/Users/j/.local/share/uv/python/cpython-3.11-macos-aarch64-none/bin/python3.11`（`python3` 指向 Codex 运行时，可能变化；系统 3.9 没有 `tomllib`）。这只是本机测试入口，不得作为产品安装、启动或更新的固定前提；其他用户按公开的 Python 版本要求选择可用解释器。只用标准库。
 - 全量测试：`PYTHONDONTWRITEBYTECODE=1 <上面的解释器> -m unittest discover -q`（约 40 秒）。前端改动后另跑 `node --check skill_pilot/web/static/app.js`。
 - 启动器与命令行入口：`sh scripts/build-app.sh` 生成 `~/Applications/Skill Pilot.app` 和 `~/.local/bin/skill-pilot`。
 - 代码量检查：`find skill_pilot -name "*.py" -o -name "*.js" -o -name "*.html" | xargs wc -l`。

@@ -116,7 +116,11 @@ class UpdateCheckTests(unittest.TestCase):
                 self.assertTrue(self.request('/api/updates/progress')[1]['running'])
                 self.assertEqual(self.request('/api/heartbeat', {})[0], 200)
             finally: gate.set()
-            self.until(lambda r: not r['running'])
+            # The expired, page-less dashboard is meant to stop as soon as
+            # its job finishes; do not poll HTTP after that shutdown point.
+            self.server.update_thread.join(5)
+            self.assertFalse(self.server.update_thread.is_alive())
+            self.assertFalse(any(r['running'] for r in self.server.update_reviews.values()))
             watcher.join(2)
             self.assertFalse(watcher.is_alive())
 
