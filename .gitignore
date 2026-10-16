@@ -1,6 +1,8 @@
 __pycache__/
 *.pyc
 work/
+.worktrees/
+.claude/worktrees/
 .playwright-cli/
 .DS_Store
 .env
