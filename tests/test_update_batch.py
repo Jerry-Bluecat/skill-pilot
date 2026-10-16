@@ -116,6 +116,32 @@ class UpdateBatchTests(unittest.TestCase):
         self.assertTrue(marks['sample'])
         self.assertTrue(marks['zlast'])
 
+    def test_description_watch_ignores_other_files_and_leaves_other_skills_alone(self):
+        updates.apply(self.review(), ['sample'], confirmed=True)
+        (self.fixture.folder / 'digest.json').write_text('{"day": 1}\n')
+        self.fixture.commit('daily data')
+        self.add_skill('other')
+        noisy = {row['name']: row for row in self.review()['skills']}
+        self.assertTrue(noisy['sample']['has_update'])
+        self.assertTrue(noisy['other']['has_update'])
+        saved = updates.set_watch('sample', 'description', home=self.home, confirmed=True)
+        quiet = {row['name']: row for row in self.review()['skills']}
+        self.assertFalse(quiet['sample']['has_update'])
+        self.assertEqual(quiet['sample']['status'], '说明没变')
+        self.assertTrue(quiet['other']['has_update'])
+        self.fixture.manifest.write_text(self.fixture.manifest.read_text().replace('new upstream', 'newer note'))
+        self.fixture.commit('skill text')
+        noted = {row['name']: row for row in self.review()['skills']}
+        self.assertTrue(noted['sample']['has_update'])
+        self.assertTrue(noted['other']['has_update'])
+        updates.set_watch('other', 'off', home=self.home, confirmed=True)
+        muted = {row['name']: row for row in self.review()['skills']}
+        self.assertFalse(muted['other']['has_update'])
+        self.assertEqual(muted['other']['status'], '不提醒')
+        self.assertTrue(muted['sample']['has_update'])
+        operations.undo(saved['id'], home=self.home)
+        self.assertIsNone(operations.load(self.home)[1]['skills']['sample'].get('update_watch'))
+
     def test_lark_install_failure_preserves_other_updates_and_exact_undo(self):
         for name in ['lark-doc', 'lark-wiki', 'zlast']:
             self.add_skill(name)

@@ -54,6 +54,11 @@ def main():
     undo = commands.add_parser("restore", help="确认还原到指定备份")
     undo.add_argument("backup_id")
     undo.add_argument("--json", action="store_true")
+    watching = commands.add_parser('watch-updates', help='设置某个技能检查更新时怎么提醒')
+    watching.add_argument('skill')
+    watching.add_argument('--mode', choices=['all', 'description', 'off'], required=True)
+    watching.add_argument('--yes', action='store_true')
+    watching.add_argument('--json', action='store_true')
     checking = commands.add_parser('check-updates', help='只读检查技能更新')
     checking.add_argument('--json', action='store_true')
     updating = commands.add_parser('update', help='核对并更新选中的技能')
@@ -151,6 +156,16 @@ def main():
                     print('请核对上述影响，加 --yes 执行。')
             return
         except (ValueError,OSError,KeyError,TypeError) as error:
+            fail(error)
+    if args.command == 'watch-updates':
+        from . import updates
+        try:
+            if not args.yes:
+                raise ValueError('请先确认，再加 --yes 保存这个提醒方式。')
+            result = updates.set_watch(args.skill, args.mode, confirmed=True)
+            print(json.dumps(result, ensure_ascii=False, indent=2) if args.json else result['message'])
+            return
+        except (ValueError, OSError, KeyError, TypeError) as error:
             fail(error)
     if args.command in {'check-updates', 'update'}:
         from . import updates

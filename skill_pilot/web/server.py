@@ -335,7 +335,7 @@ class Handler(BaseHTTPRequestHandler):
                        '/api/updates/check', '/api/updates/explain', '/api/updates/merge', '/api/updates/calibrate',
                        '/api/agents/join/preview', '/api/agents/leave/preview', '/api/agents/ignore/preview', '/api/config/preview'}
         write_routes = {'/api/assignment/apply', '/api/dependencies', '/api/install/apply', '/api/absorb', '/api/undo',
-                        '/api/updates/apply','/api/cleanup/apply','/api/withdrawn/restore',
+                        '/api/updates/apply', '/api/updates/watch', '/api/cleanup/apply','/api/withdrawn/restore',
                         '/api/agents/join/apply', '/api/agents/leave/apply', '/api/agents/ignore/apply', '/api/config/apply'}
         settings_routes = {'/api/settings/llm', '/api/settings/llm/test', '/api/labels/run'}
         program_routes = {'/api/program/check', '/api/program/apply'}
@@ -490,6 +490,10 @@ class Handler(BaseHTTPRequestHandler):
                                             body.get('agents'), body['revision'], self.server.home)
             elif path == '/api/absorb':
                 result = operations.absorb(body.get('all', True), body.get('selected'), body['revision'], self.server.home)
+            elif path == '/api/updates/watch':
+                if body.get('confirmed') is not True:
+                    raise ValueError('请先确认这个技能以后怎么提醒更新。')
+                result = updates.set_watch(body.get('name'), body.get('mode'), body.get('revision'), self.server.home, True)
             elif path == '/api/updates/apply':
                 with self.server.update_lock:
                     review = self.server.update_reviews[body['review_id']]
