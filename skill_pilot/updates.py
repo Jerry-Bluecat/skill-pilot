@@ -358,6 +358,22 @@ def _apply_group(review, names, choices, merge_ids):
                              extra_paths=lark.CLI_PATHS if lark_rows else None)
     for row in rows:
         row.pop('update_error', None)
+        row['_arrow'] = {'has_update': row.get('has_update'), 'status': row.get('status'),
+                         'operation_id': result['id']}
         row.update(has_update=False, status='已保留我的' if row['_choice'] == 'keep' else '已更新')
     review['update_count'] = sum(r['has_update'] for r in review['skills'])
     return result
+
+
+def restore_arrows(review, skills, operation_id):
+    """只有撤销记下标记的那次更新时，才把「有新版」放回同一次检查结果。"""
+    if not review:
+        return
+    wanted = set(skills or [])
+    for row in review.get('skills', []):
+        saved = row.get('_arrow')
+        if row.get('name') in wanted and saved and saved.get('operation_id') == operation_id:
+            row['has_update'] = saved['has_update']
+            row['status'] = saved['status']
+            row.pop('_arrow', None)
+    review['update_count'] = sum(bool(row.get('has_update')) for row in review.get('skills', []))

@@ -440,6 +440,7 @@ async function undoOperation(id, {skills = [], message = '', button = null} = {}
         throw error;
       } finally {
         await refreshEverything();
+        await refreshUpdates();
       }
       return true;
     },
