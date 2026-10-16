@@ -298,7 +298,7 @@ const WRITE_LOCK_SELECTORS = [
   '#config-export', '#config-agent', '#config-import', '#config-import-dialog input', '#config-import-dialog select', '#config-import-dialog button',
   '#log-list button', '#log-refresh', '#log-export', '#detail-body button:not(.hint)', '#detail-body select',
   '#new-absorb', '#new-toggle', '#install-dialog button:not(.hint)',
-  '#agents-managed button:not(.hint)', '#agents-suggested button:not(.hint)', '#agents-ignored button:not(.hint)', '#agents-join-dialog input', '#agents-join-dialog button:not(.hint)',
+  '#agents-scan', '#agents-managed button:not(.hint)', '#agents-suggested button:not(.hint)', '#agents-ignored button:not(.hint)', '#agents-join-dialog input', '#agents-join-dialog button:not(.hint)',
   '#migration-preview', '#migration-apply', '#migration-back', '#migration-agents input',
   '#migration-versions input', '#migration-backups', '#migration-restore', '#migration-backup-list button',
 ];
@@ -327,6 +327,7 @@ function renderBusyAreas() {
   renderLog();
   renderInstallRail();
   if (state.detail) renderDetail();
+  $('agents-scan').disabled = Boolean(writeBusy || state.agentsView?.discovery?.running);
 }
 
 async function runWrite({button = null, busyText, taskText = busyText, success = null, onError = null, work}) {
@@ -649,12 +650,14 @@ function trackSettingsBlock() {
   state.settingsBlock = name;
   highlightSettingsBlock(name);
   rememberPlace();
+  if (name === 'diagnostics' && !state.inventory) refreshInventory();
 }
 
 function showSettingsBlock(name, {scroll = true} = {}) {
   if (!SETTINGS_BLOCKS.includes(name)) return;
   state.settingsBlock = name;
   highlightSettingsBlock(name);
+  if (name === 'diagnostics' && !state.inventory) refreshInventory();
   if (state.page === 'settings') rememberPlace();
   if (!scroll) return;
   const block = document.querySelector(`.settings-main > .set-block[data-block="${name}"]`);
@@ -664,7 +667,7 @@ function showSettingsBlock(name, {scroll = true} = {}) {
   armSettingsSettle();
 }
 
-/* 进设置页：六块内容一次都刷成最新的（B 版全都在页面上，不按块懒加载）。 */
+/* 进设置页先刷新常用内容，详细诊断在实际进入时读取。 */
 function renderSettings() {
   renderConfigExport();
   renderAgents();
@@ -672,6 +675,7 @@ function renderSettings() {
   refreshProgramUpdate();
   refreshLog();
   renderDiagnostics();
+  if (state.settingsBlock === 'diagnostics' && !state.inventory) refreshInventory();
   renderMigrationStatus();
   highlightSettingsBlock(state.settingsBlock);
 }
@@ -1423,13 +1427,24 @@ $('new-absorb').addEventListener('click', async event => {
 });
 
 /* 重新加载数据。 */
+let inventoryRequest = null;
+
 async function refreshInventory() {
-  try {
-    state.inventory = await api('/api/scan');
-    renderDiagnostics();
-  } catch (error) {
-    toast({text: '技能清单没能读出来：' + error.message, tone: 'error', sticky: true});
-  }
+  if (inventoryRequest) return inventoryRequest;
+  inventoryRequest = (async () => {
+    try {
+      if (!state.inventory) setTask('inventory', {text: '正在读取技能盘点…'});
+      state.inventory = await api('/api/scan');
+      renderDiagnostics();
+      renderFooter();
+    } catch (error) {
+      toast({text: '技能清单没能读出来：' + error.message, tone: 'error', sticky: true});
+    } finally {
+      clearTask('inventory');
+      inventoryRequest = null;
+    }
+  })();
+  return inventoryRequest;
 }
 
 async function refreshTable(preserveDraft = false) {
@@ -1437,6 +1452,7 @@ async function refreshTable(preserveDraft = false) {
   const keepDraft = preserveDraft && table.revision === state.table?.revision;
   const draft = state.draft, pending = state.pending;
   state.table = table;
+  state.tableReadAt = new Date().toISOString();
   state.skillIndex = new Map(table.skills.map(s => [s.name, s]));
   state.groupIndex = new Map((table.groups || []).flatMap(group => group.skills.map(name => [name, group.name])));
   state.saved = Object.fromEntries(table.skills.map(s => [s.name, [...s.assigned_agents]]));
@@ -1461,14 +1477,25 @@ async function refreshTable(preserveDraft = false) {
     labelsAutoAttempted = true;
     startLabels('missing');
   }
+  renderFooter();
 }
 
 /* agent 目录与接入建议。页面里翻名字、设置页那一栏、新 agent 横幅都看它。 */
+let agentsPollTimer = null;
+
 async function refreshAgents() {
   indexCatalog(await api('/api/agents'));
   renderRailNotes();
   renderAgentHead();
   renderAgents();
+  if (!state.table) renderMigrationStatus();
+  clearTimeout(agentsPollTimer);
+  if (state.agentsView?.discovery?.running) {
+    agentsPollTimer = setTimeout(() => refreshAgents().catch(error => {
+      state.agentsView.discovery = {...state.agentsView.discovery, running: false, error: error.message + '，请重新扫描。'};
+      renderAgents();
+    }), 500);
+  }
 }
 
 /* ==================== 设置与中文名：只改变显示，不锁技能操作 ==================== */
@@ -1965,8 +1992,7 @@ async function refreshLog() {
 }
 
 async function refreshEverything() {
-  // /api/agents 比较慢（要重新盘点一遍），放在最后只等前三个：
-  // 写操作的完成提示不用陪它等，agent 那一栏结果回来自己会重画。
+  // Agent 名单独立读取，不阻挡写操作的完成提示。
   await Promise.all([refreshTable(), refreshInventory()]);
   await Promise.all([refreshLog(), loadCleanup()]);
   refreshAgents().catch(error => toast({text: error.message, tone: 'error', sticky: true}));
@@ -1982,6 +2008,13 @@ function ignoredAgents(view) {
 
 function renderAgents() {
   const view = state.agentsView;
+  const discovery = view?.discovery || {};
+  $('agents-scan').disabled = Boolean(discovery.running || writeBusy);
+  $('agents-scan').setAttribute('aria-busy', String(Boolean(discovery.running)));
+  $('agents-scan').querySelector('span').textContent = discovery.running ? '正在扫描…' : '重新扫描 agent';
+  const checked = discovery.checked_at ? `上次检查：${new Date(discovery.checked_at).toLocaleString('zh-CN')}` : '';
+  $('agents-scan-status').textContent = discovery.error || [discovery.message, checked].filter(Boolean).join(' · ')
+    || '打开时会检查新安装的软件；新装 agent 后，也可以在这里重新扫描。';
   const managed = view?.managed || [];
   const suggested = view?.suggested || [];
   const ignored = ignoredAgents(view);
@@ -2004,7 +2037,7 @@ function renderAgents() {
     </div>`;
   }).join('');
 
-  // 新发现的 agent：主行只写名字和技能数，文件夹在哪、为什么觉得它是个 agent 都放进说明图标
+  // 新发现的 agent：先列名字与识别依据，接入时再核对技能数量。
   const row = (agent, action) => {
     const found = agent.skill_count === undefined ? '' : `找到 ${number(agent.skill_count)} 个技能`;
     const where = rootsText(agent.skill_roots);
@@ -2025,6 +2058,19 @@ function renderAgents() {
   $('agents-ignored-box').hidden = !ignored.length;
   $('agents-ignored').innerHTML = ignored.map(agent => row({...agent, ignored: true}, joinButton(agent))).join('');
 }
+
+$('agents-scan').addEventListener('click', async () => {
+  if (state.agentsView?.discovery?.running || writeBusy) return;
+  $('agents-scan').disabled = true;
+  $('agents-scan-status').textContent = '正在扫描 agent…';
+  try {
+    await api('/api/agents/scan', {});
+    await refreshAgents();
+  } catch (error) {
+    state.agentsView.discovery = {...state.agentsView.discovery, running: false, error: error.message + '，请重试。'};
+    renderAgents();
+  }
+});
 
 /* 还没整理过时，agent 一栏指回技能页的首次整理。 */
 $('agents-migration-link').addEventListener('click', () => showPage('skills'));
@@ -3381,8 +3427,7 @@ let backupId = null;
 function migrationChoices() {
   const suggested = state.agentsView?.suggested;
   if (suggested?.length) {
-    const ready = new Set((state.inventory?.agents || []).filter(agent => agent.status === 'profile_available').map(agent => agent.id));
-    const known = ready.size ? suggested.filter(item => ready.has(item.id)) : [];
+    const known = suggested.filter(item => item.profile_available);
     return (known.length ? known : suggested).map(item => ({id: item.id, name: item.name}));
   }
   return (migrationPlan?.agent_catalog || []).map(item => ({id: item.id, name: item.name}));
@@ -3621,8 +3666,10 @@ async function refreshMigrationStatus() {
 /* ==================== 启动 ==================== */
 
 function renderFooter() {
-  const generated = state.inventory?.generated_at;
-  $('footer-time').textContent = generated ? `盘点于 ${new Date(generated).toLocaleString('zh-CN')}` : '';
+  const inventoried = state.inventory?.generated_at;
+  const generated = inventoried || state.tableReadAt;
+  const label = inventoried ? '盘点于' : '名单读取于';
+  $('footer-time').textContent = generated ? `${label} ${new Date(generated).toLocaleString('zh-CN')}` : '';
 }
 
 async function refreshProgram() {
@@ -3679,7 +3726,6 @@ async function start() {
   renderTasks();
   // 打开页面就读一次 SP 更新进度：有新版时左栏直接提醒，不用进设置里点。
   refreshProgramUpdate();
-  await refreshInventory();
   // 先问 /api/agents：还没整理过时，技能页要显示首次整理，不去读还没有的技能表。
   await refreshAgents().catch(() => {});
   renderFooter();
