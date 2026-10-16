@@ -427,6 +427,49 @@ def bootstrap(home):  # 首次安装；撤销或撤下后不再自动安装。
     return install({'skills': [{'name': 'skill-pilot', 'path': str(path), 'digest': content_digest(path),
                                'source': {'source': '自制'}}]}, ['skill-pilot'], agents, home=home)
 
+def _local_folder(name, folder, home, registry):
+    if not isinstance(name, str) or name not in registry['skills']:
+        raise ValueError('这个技能不在登记表里，请刷新后再选。')
+    if normalize(registry['skills'][name]['source'])['kind'] != 'skip':
+        raise ValueError('这个技能有上游来源，请用检查更新。这里只更新自制技能。')
+    raw = Path(folder)
+    incoming = raw.resolve() if raw.is_absolute() else (home / raw).resolve()
+    if not incoming.is_dir() or not (incoming / 'SKILL.md').is_file():
+        raise ValueError('请选择带有技能说明的文件夹。')
+    if metadata((incoming / 'SKILL.md').read_text()).get('name') != name:
+        raise ValueError('文件夹里的技能名称和要更新的不一致。')
+    current = (home / '.skill-pilot/store' / name).resolve()
+    if incoming == current or current in incoming.parents:
+        raise ValueError('请另选一份文件，不能用正在使用的这一份来更新自己。')
+    github.safe_skill(incoming)
+    return incoming
+
+
+def update_local(name, folder, expected=None, home=None, confirmed=False):
+    home, registry, agents = load(home)
+    incoming = _local_folder(name, folder, home, registry)
+    same = normalization.tree(incoming) == normalization.tree(home / '.skill-pilot/store' / name)
+    if not confirmed:
+        return {'name': name, 'changed': not same,
+                'message': '内容和正在使用的一样，没有需要更新的。' if same else f'将用这份文件更新「{name}」。请核对后加 --yes 执行。'}
+    if same:
+        return {'name': name, 'changed': False, 'message': '内容和正在使用的一样，没有需要更新的。'}
+    guard(home / '.skill-pilot', home)
+    def mutate(current, checked):
+        destination = checked(home / '.skill-pilot/store' / name)
+        if destination.exists():
+            shutil.rmtree(destination)
+        shutil.copytree(incoming, destination, symlinks=True, ignore=shutil.ignore_patterns(*SKIP_CONTENT))
+        base = checked(home / '.skill-pilot/bases' / name)
+        if base.exists():
+            shutil.rmtree(base)
+        base.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(destination, base, symlinks=True)
+        current['skills'][name]['base_digest'] = content_digest(destination)
+        return [name], [name], {}
+    return _run(home, registry, agents, expected or revision(home, agents), f'用本地文件更新了「{name}」', mutate)
+
+
 def absorb(all_skills=False, selected=None, expected=None, home=None):
     home, registry, agents = load(home)
     guard(home / '.skill-pilot', home)
