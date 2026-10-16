@@ -54,6 +54,11 @@ def main():
     undo = commands.add_parser("restore", help="确认还原到指定备份")
     undo.add_argument("backup_id")
     undo.add_argument("--json", action="store_true")
+    local_update = commands.add_parser('update-local', help='用本地文件夹更新一个自制技能')
+    local_update.add_argument('skill')
+    local_update.add_argument('folder')
+    local_update.add_argument('--yes', action='store_true')
+    local_update.add_argument('--json', action='store_true')
     adding = commands.add_parser('add-agent', help='按文件夹接入一个 agent')
     adding.add_argument('--name', required=True, help='显示名字')
     adding.add_argument('folder', help='这个 agent 的技能文件夹')
@@ -161,6 +166,13 @@ def main():
                     print('请核对上述影响，加 --yes 执行。')
             return
         except (ValueError,OSError,KeyError,TypeError) as error:
+            fail(error)
+    if args.command == 'update-local':
+        try:
+            result = operations.update_local(args.skill, args.folder, confirmed=args.yes)
+            print(json.dumps(result, ensure_ascii=False, indent=2) if args.json else result['message'])
+            return
+        except (ValueError, OSError, KeyError, TypeError) as error:
             fail(error)
     if args.command == 'add-agent':
         from . import agents as agent_management

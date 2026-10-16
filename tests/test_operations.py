@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -278,4 +279,38 @@ class AdditionalOperationsTests(unittest.TestCase):
         view=operations.table(self.home)
         plan=operations.preview_assign([{'skill':'ascentiz-blog-writer','agent':'claude','enabled':True}],home=self.home)
         self.assertTrue(all('claude' in plan['assignments'][n] for n in names))
+
+    def command(self, *args):
+        return subprocess.run([sys.executable, '-m', 'skill_pilot', *args], cwd=store.PROJECT,
+                              env={**os.environ, 'SKILL_PILOT_HOME': str(self.home), 'PYTHONDONTWRITEBYTECODE': '1'},
+                              capture_output=True, text=True, timeout=20)
+
+    def test_local_update_of_homemade_skill_is_confirmed_and_undoable(self):
+        registry_path = self.home / '.skill-pilot/registry.json'
+        registry = json.loads(registry_path.read_text())
+        registry['skills']['other']['source'] = {'source': '自制'}
+        registry['skills']['grilling']['source'] = {'source': 'https://github.com/example/skills', 'source_path': 'grilling'}
+        registry_path.write_text(json.dumps(registry))
+        incoming = self.home / 'Drafts/other skill'
+        incoming.mkdir(parents=True)
+        (incoming / 'SKILL.md').write_text('---\nname: other\ndescription: 新说明\n---\n新正文\n')
+        (incoming / 'notes.txt').write_text('资料\n')
+        before = self.fingerprint()
+        preview = self.command('update-local', 'other', str(incoming))
+        self.assertEqual(preview.returncode, 0, preview.stderr + preview.stdout)
+        self.assertIn('请核对', preview.stdout)
+        self.assertEqual(self.fingerprint(), before)
+        rejected = self.command('update-local', 'grilling', str(incoming), '--yes')
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn('上游', rejected.stdout + rejected.stderr)
+        self.assertEqual(self.fingerprint(), before)
+        updated = self.command('update-local', 'other', str(incoming), '--yes', '--json')
+        self.assertEqual(updated.returncode, 0, updated.stderr + updated.stdout)
+        record = json.loads(updated.stdout)
+        self.assertIn('新正文', (self.home / '.skill-pilot/store/other/SKILL.md').read_text())
+        self.assertEqual((self.home / '.skill-pilot/store/other/notes.txt').read_text(), '资料\n')
+        undone = self.command('undo', record['id'], '--json')
+        self.assertEqual(undone.returncode, 0, undone.stderr + undone.stdout)
+        self.assertEqual(self.fingerprint(), before)
+        self.assertNotIn('新正文', (self.home / '.skill-pilot/store/other/SKILL.md').read_text())
 
