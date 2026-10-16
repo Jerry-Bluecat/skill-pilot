@@ -54,6 +54,11 @@ def main():
     undo = commands.add_parser("restore", help="确认还原到指定备份")
     undo.add_argument("backup_id")
     undo.add_argument("--json", action="store_true")
+    adding = commands.add_parser('add-agent', help='按文件夹接入一个 agent')
+    adding.add_argument('--name', required=True, help='显示名字')
+    adding.add_argument('folder', help='这个 agent 的技能文件夹')
+    adding.add_argument('--yes', action='store_true')
+    adding.add_argument('--json', action='store_true')
     watching = commands.add_parser('watch-updates', help='设置某个技能检查更新时怎么提醒')
     watching.add_argument('skill')
     watching.add_argument('--mode', choices=['all', 'description', 'off'], required=True)
@@ -156,6 +161,21 @@ def main():
                     print('请核对上述影响，加 --yes 执行。')
             return
         except (ValueError,OSError,KeyError,TypeError) as error:
+            fail(error)
+    if args.command == 'add-agent':
+        from . import agents as agent_management
+        try:
+            request = [{'name': args.name, 'skill_root': args.folder}]
+            plan = agent_management.preview_join(request)
+            if args.yes:
+                result = agent_management.join(request, plan['plan_id'])
+            else:
+                count = len(plan['skills'])
+                result = {'message': f'将接入「{args.name}」，会登记 {count} 个技能。请核对后加 --yes 执行。',
+                          'agents': plan['agents'], 'skills': [skill['name'] for skill in plan['skills']]}
+            print(json.dumps(result, ensure_ascii=False, indent=2) if args.json else result['message'])
+            return
+        except (ValueError, OSError, KeyError, TypeError) as error:
             fail(error)
     if args.command == 'watch-updates':
         from . import updates

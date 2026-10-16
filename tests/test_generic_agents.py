@@ -1,7 +1,10 @@
 import copy
 import itertools
 import json
+import os
 import shutil
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -353,6 +356,29 @@ class GenericAgentTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, '恢复原样'):
                 self.join()
         self.assertEqual(self.fingerprint(), point)
+
+    def command(self, *args):
+        return subprocess.run([sys.executable, '-m', 'skill_pilot', *args], cwd=store.PROJECT,
+                              env={**os.environ, 'SKILL_PILOT_HOME': str(self.home), 'PYTHONDONTWRITEBYTECODE': '1'},
+                              capture_output=True, text=True, timeout=20)
+
+    def test_cli_and_api_add_agent_from_a_folder_with_spaces_and_undo(self):
+        folder = self.home / 'My Agents/New Tool/skills'
+        self.skill('My Agents/New Tool/skills/hello', 'hello')
+        before = self.fingerprint()
+        preview = self.command('add-agent', '--name', '新工具', str(folder))
+        self.assertEqual(preview.returncode, 0, preview.stderr + preview.stdout)
+        self.assertIn('请核对', preview.stdout)
+        self.assertEqual(self.fingerprint(), before)
+        added = self.command('add-agent', '--name', '新工具', str(folder), '--yes', '--json')
+        self.assertEqual(added.returncode, 0, added.stderr + added.stdout)
+        record = json.loads(added.stdout)
+        self.assertIn('新工具', [item['name'] for item in agents.overview(self.home)['managed']])
+        self.assertTrue((folder / 'hello').is_symlink())
+        undone = self.command('undo', record['id'], '--json')
+        self.assertEqual(undone.returncode, 0, undone.stderr + undone.stdout)
+        self.assertEqual(self.fingerprint(), before)
+        self.assertFalse((folder / 'hello').is_symlink())
 
     def test_forbidden_directories_and_last_managed_assistant(self):
         point = self.fingerprint()

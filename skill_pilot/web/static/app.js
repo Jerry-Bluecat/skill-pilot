@@ -1766,6 +1766,25 @@ async function ignoreAgent(id) {
   });
 }
 
+$('agent-add-submit').addEventListener('click', async () => {
+  const name = $('agent-add-name').value.trim();
+  const folder = $('agent-add-folder').value.trim();
+  if (!name || !folder) {
+    toast({text: '请填写名字和技能文件夹。', tone: 'error', sticky: true});
+    return;
+  }
+  let plan;
+  try {
+    plan = await api('/api/agents/join/preview', {agents: [{name, skill_root: folder}]});
+  } catch (error) {
+    toast({text: error.message, tone: 'error', sticky: true});
+    return;
+  }
+  joinPlan = plan;
+  renderJoin(plan);
+  $('agents-join-dialog').showModal();
+});
+
 $('agents-managed').addEventListener('click', event => {
   const button = event.target.closest('[data-agent-leave]');
   if (button) leaveAgent(button.dataset.agentLeave);
