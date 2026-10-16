@@ -24,7 +24,7 @@ def verify(home):
            "XDG_CACHE_HOME": str(home / ".cache"), "XDG_STATE_HOME": str(home / ".state")}
     roots = [".codex/skills", ".agents/skills", ".claude/skills", ".gemini/config/skills", ".dsh/skills",
              ".codex/config.toml", ".agents/.skill-lock.json", *extra_source_paths(home),
-             "Developer/vendor/stop-that-shit-local/skills/stss", ".skill-pilot-fixture.json"]
+             ".skill-pilot-fixture.json"]
     def fingerprints():
         return {r: physical_state(home / r) for r in roots}
     def cli(*arguments):

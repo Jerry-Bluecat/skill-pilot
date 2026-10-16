@@ -316,6 +316,45 @@ class MigrationTests(unittest.TestCase):
             self.assertFalse(any((fake / '.skill-pilot').glob('usage.sqlite*')))
         self.assertEqual([(p.read_bytes(), p.stat().st_mtime_ns) for p in legacy], before)
 
+    def test_simulator_copies_link_dependencies_and_optional_extra_sources(self):
+        spec = importlib.util.spec_from_file_location("fake", store.PROJECT / "scripts/make-fake-home.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for configured in (False, True):
+            with self.subTest(extra_sources=configured), tempfile.TemporaryDirectory(prefix="skill pilot ") as root:
+                set_up_home(self, Path(root) / "source home")
+                absolute = self.skill("My Projects/skill src/alpha", "alpha")
+                relative = self.skill("Other Projects/skill src/beta", "beta")
+                extra = self.skill("Extra Skills/delta", "delta")
+                ignored = self.skill("Unregistered Skills/gamma", "gamma")
+                skills = self.home / ".codex/skills"
+                skills.mkdir(parents=True)
+                (skills / "alpha").symlink_to(absolute, target_is_directory=True)
+                (skills / "beta").symlink_to(os.path.relpath(relative, skills), target_is_directory=True)
+                extra_relative = str(extra.relative_to(self.home))
+                if configured:
+                    state = self.home / ".skill-pilot"
+                    state.mkdir()
+                    (state / "extra-sources.json").write_text(json.dumps({"paths": [extra_relative]}))
+                result = module.make_fake_home(self.home, Path(root) / "fake home")
+                fake = Path(result["home"])
+                for target in (absolute, relative):
+                    target_relative = str(target.relative_to(self.home))
+                    copied = fake / target_relative
+                    link = fake / ".codex/skills" / target.name
+                    self.assertTrue(link.is_symlink())
+                    self.assertEqual(link.resolve(), copied)
+                    self.assertTrue(link.resolve().is_relative_to(fake))
+                    self.assertEqual((copied / "SKILL.md").read_bytes(), (target / "SKILL.md").read_bytes())
+                    self.assertIn(target_relative, result["link_dependencies"])
+                store.check_links(fake, fake)
+                self.assertEqual((fake / extra_relative).exists(), configured)
+                self.assertEqual(extra_relative in result["copied_roots"], configured)
+                if configured:
+                    self.assertEqual((fake / extra_relative / "SKILL.md").read_bytes(), (extra / "SKILL.md").read_bytes())
+                self.assertFalse((fake / ignored.relative_to(self.home)).exists())
+                self.assertFalse(any(path.startswith("Developer/") for path in result["copied_roots"]))
+
 
 if __name__ == "__main__":
     unittest.main()
