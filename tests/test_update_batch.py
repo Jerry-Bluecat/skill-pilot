@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -58,6 +59,62 @@ class UpdateBatchTests(unittest.TestCase):
     def undo(self, result):
         for operation in reversed(result['operations']):
             operations.undo(operation['id'], home=self.home)
+
+    def request(self, server, path, body=None):
+        import urllib.error
+        import urllib.request
+        request = urllib.request.Request(
+            server.origin + path, data=json.dumps(body).encode() if body is not None else None,
+            headers={'X-Skill-Pilot-Token': server.token, 'Origin': server.origin,
+                     'Content-Type': 'application/json'})
+        try:
+            with urllib.request.urlopen(request, timeout=3) as response:
+                return response.status, json.load(response)
+        except urllib.error.HTTPError as error:
+            return error.code, json.load(error)
+
+    def test_undoing_a_batch_brings_each_update_mark_back(self):
+        self.add_skill('zlast')
+        server = Dashboard({'home': str(self.home)})
+        thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .05})
+        thread.start()
+
+        def close():
+            server.shutdown()
+            thread.join()
+            server.server_close()
+            for review in server.update_reviews.values():
+                shutil.rmtree(review['temporary'], ignore_errors=True)
+
+        self.addCleanup(close)
+        self.request(server, '/api/updates/check', {})
+        deadline = time.monotonic() + 10
+        review = None
+        while time.monotonic() < deadline:
+            _, review = self.request(server, '/api/updates/progress')
+            if review and not review['running']:
+                break
+            time.sleep(.01)
+        self.assertTrue(review and not review['running'])
+        names = [row['name'] for row in review['skills'] if row['has_update']]
+        self.assertIn('sample', names)
+        self.assertIn('zlast', names)
+        status, result = self.request(server, '/api/updates/apply', {
+            'review_id': review['id'], 'skills': ['sample', 'zlast'], 'confirmed': True})
+        self.assertEqual(status, 200, result)
+        _, progress = self.request(server, '/api/updates/progress')
+        marks = {row['name']: row['has_update'] for row in progress['skills']}
+        self.assertFalse(marks['sample'])
+        self.assertFalse(marks['zlast'])
+        for operation in reversed(result['operations']):
+            _, table = self.request(server, '/api/table')
+            status, undone = self.request(server, '/api/undo', {
+                'id': operation['id'], 'revision': table['revision'], 'confirmed': True})
+            self.assertEqual(status, 200, undone)
+        _, progress = self.request(server, '/api/updates/progress')
+        marks = {row['name']: row['has_update'] for row in progress['skills']}
+        self.assertTrue(marks['sample'])
+        self.assertTrue(marks['zlast'])
 
     def test_lark_install_failure_preserves_other_updates_and_exact_undo(self):
         for name in ['lark-doc', 'lark-wiki', 'zlast']:
