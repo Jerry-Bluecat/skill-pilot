@@ -12,6 +12,23 @@ from skill_pilot.web.server import Dashboard
 
 
 class AgentWebTests(unittest.TestCase):
+    def test_api_adds_agent_from_a_folder_with_spaces_and_undoes(self):
+        folder = self.home / 'My Agents/New Tool/skills'
+        self.skill('My Agents/New Tool/skills/hello', 'hello')
+        before = self.fingerprint()
+        status, plan = self.request('/api/agents/join/preview',
+                                    {'agents': [{'name': '新工具', 'skill_root': str(folder)}]})
+        self.assertEqual(status, 200, plan)
+        self.assertEqual(self.fingerprint(), before)
+        status, result = self.request('/api/agents/join/apply', {
+            'agents': [{'name': '新工具', 'skill_root': str(folder)}],
+            'plan_id': plan['plan_id'], 'revision': plan['revision'], 'confirmed': True})
+        self.assertEqual(status, 200, result)
+        _, table = self.request('/api/table')
+        status, undone = self.request('/api/undo', {'id': result['id'], 'revision': table['revision'], 'confirmed': True})
+        self.assertEqual(status, 200, undone)
+        self.assertEqual(self.fingerprint(), before)
+
     skill = test_operations.OperationsTests.skill
     fingerprint = test_operations.OperationsTests.fingerprint
 
