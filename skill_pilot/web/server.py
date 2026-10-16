@@ -504,7 +504,7 @@ class Handler(BaseHTTPRequestHandler):
                 record = next((item for item in operations.history(self.server.home) if item['id'] == body['id']), None)
                 if record:
                     for review in self.server.update_reviews.values():
-                        updates.restore_arrows(review, record.get('skills'))
+                        updates.restore_arrows(review, record.get('skills'), body['id'])
             self.server.invalidate_agents()
             self.server.inventory = scan(self.server.home)
             self.reply(200, result)
