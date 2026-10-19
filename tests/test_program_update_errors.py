@@ -134,6 +134,53 @@ class ProgramUpdateErrorTests(unittest.TestCase):
         self.assertEqual(server.program_progress['error'], '')
         self.assertTrue((self.home / '.skill-pilot/logs/program-update.jsonl').is_file())
 
+    def test_failure_log_hides_paths_outside_home_only(self):
+        inside = self.home / 'Library' / 'Logs' / 'update.log'
+        outside = self.root / 'var' / 'opt' / 'skill-pilot' / 'self_update.py'
+        spaced = self.project / 'config.toml'
+        cases = {
+            'inside': (
+                f'Permission denied: {inside}',
+                f'Permission denied: ~/{inside.relative_to(self.home).as_posix()}'),
+            'outside': (
+                f"fatal: cannot open '{spaced}': No such file or directory ({outside})",
+                "fatal: cannot open 'config.toml': No such file or directory (self_update.py)"),
+            'plain': (
+                'Connection reset by peer; error: RPC failed; HTTP/2 403',
+                'Connection reset by peer; error: RPC failed; HTTP/2 403'),
+        }
+        for name, (original, expected) in cases.items():
+            with self.subTest(name=name):
+                error = ValueError(original)
+                self_update.record_failure(self.home, 'check', error)
+                detail = json.loads((self.home / '.skill-pilot/logs/program-update.jsonl')
+                                     .read_text().splitlines()[-1])['detail']
+                self.assertEqual(detail, expected)
+                self.assertEqual(str(error), original)
+                self.assertNotIn(str(self.home), detail)
+                self.assertNotIn(str(outside), detail)
+                self.assertNotIn(str(spaced), detail)
+
+    def test_page_error_stays_specific_when_log_hides_outside_paths(self):
+        outside = self.project / 'skill_pilot' / 'self_update.py'
+        stderr = f"fatal: unable to read '{outside}': Connection reset by peer"
+        server = Dashboard({'home': str(self.home)})
+        self.addCleanup(server.server_close)
+        with patch.object(github.subprocess, 'run', return_value=self.failure(stderr)), \
+                patch.object(self_update, 'check', side_effect=lambda home:
+                    self_update.git(self.project, 'ls-remote', self_update.SOURCE)):
+            server.program_work('check')
+        self.assertEqual(server.program_progress['phase'], 'error')
+        self.assertIn('连接中断', server.program_progress['error'])
+        self.assertNotIn('当前操作失败', server.program_progress['error'])
+        self.assertNotIn(str(outside), server.program_progress['error'])
+        text = (self.home / '.skill-pilot/logs/program-update.jsonl').read_text()
+        record = json.loads(text.splitlines()[-1])
+        self.assertIn('Connection reset by peer', record['detail'])
+        self.assertIn('self_update.py', record['detail'])
+        self.assertNotIn(str(outside), text)
+        self.assertNotIn('Different Install Location', text)
+
     def test_readonly_checks_do_not_write_logs(self):
         with patch.dict(os.environ, {'SKILL_PILOT_READ_ONLY': '1'}):
             self_update.record_failure(self.home, 'check', ValueError('测试失败'))

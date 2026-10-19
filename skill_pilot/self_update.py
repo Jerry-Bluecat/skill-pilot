@@ -64,6 +64,21 @@ def git(project, *arguments, **options):
             raise ValueError(f'SP {step}没有完成：{reason}{retry}。') from error
 
 
+def _path_tail(path):
+    name = Path(path).name
+    return name or '[其他位置]'
+
+
+def _hide_paths_outside_home(detail):
+    """Keep home-relative paths, and leave only the file name of any other absolute path."""
+    def quoted(match):
+        return match.group(1) + _path_tail(match.group(2)) + match.group(1)
+
+    detail = re.sub(r'(?<![~\w])(["\'])(/[^\n]*?)\1', quoted, detail)
+    return re.sub(r'(?<![~\w])/(?:[^\s\'"<>:;,)]+)',
+                  lambda match: _path_tail(match.group(0)), detail)
+
+
 def record_failure(home, action, error):
     """Keep failure diagnostics outside the reversible skill-operation history."""
     home = Path(home).resolve()
@@ -81,6 +96,7 @@ def record_failure(home, action, error):
     detail = re.sub(r'\b(?:gh[pousr]_|github_pat_|sk-)[A-Za-z0-9_-]+', '[凭据已隐藏]', detail)
     for directory in sorted({str(home), str(Path.home())}, key=len, reverse=True):
         detail = detail.replace(directory, '~')
+    detail = _hide_paths_outside_home(detail)
     command = getattr(cause, 'cmd', [])
     step = command[command.index('-C') + 2] if isinstance(command, list) and '-C' in command else action
     record = {'time': datetime.now(timezone.utc).isoformat(), 'action': action, 'step': step,
