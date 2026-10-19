@@ -136,7 +136,7 @@ class ProgramUpdateErrorTests(unittest.TestCase):
 
     def test_failure_log_hides_paths_outside_home_only(self):
         inside = self.home / 'Library' / 'Logs' / 'update.log'
-        outside = self.root / 'var' / 'opt' / 'skill-pilot' / 'self_update.py'
+        outside = Path('/var/opt/skill-pilot/self_update.py')
         spaced = self.project / 'config.toml'
         cases = {
             'inside': (
@@ -160,6 +160,61 @@ class ProgramUpdateErrorTests(unittest.TestCase):
                 self.assertNotIn(str(self.home), detail)
                 self.assertNotIn(str(outside), detail)
                 self.assertNotIn(str(spaced), detail)
+
+    def test_home_prefix_does_not_hide_a_longer_directory(self):
+        home = str(self.home)
+        foreign = f'{home}X/secret/notes.txt'
+        cases = {
+            'quoted': (f"Permission denied: '{foreign}'", "Permission denied: 'notes.txt'"),
+            'plain': (f'Permission denied: {foreign}', None),
+        }
+        for name, (original, expected) in cases.items():
+            with self.subTest(name=name):
+                error = ValueError(original)
+                self_update.record_failure(self.home, 'check', error)
+                detail = json.loads((self.home / '.skill-pilot/logs/program-update.jsonl')
+                                     .read_text().splitlines()[-1])['detail']
+                if expected is not None:
+                    self.assertEqual(detail, expected)
+                    self.assertNotIn('secret/notes.txt', detail)
+                self.assertNotIn('~X', detail)
+                self.assertNotIn(home, detail)
+                self.assertNotIn(foreign, detail)
+                self.assertIn('notes.txt', detail)
+                self.assertIn('Permission denied', detail)
+                self.assertEqual(str(error), original)
+
+    def test_following_words_are_not_swallowed_into_the_path(self):
+        cases = {
+            'sentence': (
+                '/opt/x/y is not a git repo and src/main.py was skipped',
+                'y is not a git repo and src/main.py was skipped'),
+            'relative': (
+                'error: ./scripts/build.sh and ../other/repo and skill_pilot/self_update.py failed',
+                'error: ./scripts/build.sh and ../other/repo and skill_pilot/self_update.py failed'),
+        }
+        for name, (original, expected) in cases.items():
+            with self.subTest(name=name):
+                error = ValueError(original)
+                self_update.record_failure(self.home, 'check', error)
+                detail = json.loads((self.home / '.skill-pilot/logs/program-update.jsonl')
+                                     .read_text().splitlines()[-1])['detail']
+                self.assertEqual(detail, expected)
+                self.assertEqual(str(error), original)
+
+    def test_relative_paths_and_shell_links_stay_readable(self):
+        original = ('run ./scripts/build.sh from ../other/repo '
+                    'ssh://git@github.com/example/skill-pilot.git '
+                    'git://github.com/example/skill-pilot.git')
+        expected = ('run ./scripts/build.sh from ../other/repo '
+                    '[链接已隐藏] '
+                    '[链接已隐藏]')
+        error = ValueError(original)
+        self_update.record_failure(self.home, 'check', error)
+        detail = json.loads((self.home / '.skill-pilot/logs/program-update.jsonl')
+                             .read_text().splitlines()[-1])['detail']
+        self.assertEqual(detail, expected)
+        self.assertEqual(str(error), original)
 
     def test_page_error_stays_specific_when_log_hides_outside_paths(self):
         outside = self.project / 'skill_pilot' / 'self_update.py'

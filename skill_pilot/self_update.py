@@ -78,37 +78,18 @@ def _path_token_end(detail, pos):
     return pos
 
 
-def _path_continues(detail, pos):
-    """A spaced path keeps going when a later word still contains a slash."""
-    while pos < len(detail) and detail[pos] == ' ':
-        pos += 1
-    while pos < len(detail):
-        if detail[pos] in _PATH_STOP or detail[pos] in '\t/':
-            return False
-        end = _path_token_end(detail, pos)
-        if '/' in detail[pos:end]:
-            return True
-        pos = end
-        if pos < len(detail) and detail[pos] == ' ':
-            pos += 1
-            continue
-        return False
-    return False
-
-
 def _absolute_path_end(detail, start):
-    end = start
-    pos = start
-    while pos < len(detail):
-        token_end = _path_token_end(detail, pos)
-        if token_end == pos:
+    """Join the next word only when it starts with /, or this segment ends with /."""
+    end = _path_token_end(detail, start)
+    while end < len(detail) and detail[end] == ' ':
+        nxt = end + 1
+        if nxt >= len(detail) or detail[nxt] in _PATH_STOP or detail[nxt] == '\t':
             break
-        if '/' in detail[pos:token_end]:
-            end = token_end
-        elif not _path_continues(detail, token_end):
+        word_end = _path_token_end(detail, nxt)
+        if word_end == nxt:
             break
-        if token_end < len(detail) and detail[token_end] == ' ' and _path_continues(detail, token_end):
-            pos = token_end + 1
+        if detail[nxt] == '/' or detail[end - 1] == '/':
+            end = word_end
             continue
         break
     return end
@@ -117,7 +98,7 @@ def _absolute_path_end(detail, start):
 def _hide_unquoted_absolute_paths(detail):
     pieces = []
     cursor = 0
-    for match in re.finditer(r'(?<![~\w])/', detail):
+    for match in re.finditer(r'(?<![~\w.])/', detail):
         start = match.start()
         if start < cursor:
             continue
@@ -136,8 +117,16 @@ def _hide_paths_outside_home(detail):
     def quoted(match):
         return match.group(1) + _path_tail(match.group(2)) + match.group(1)
 
-    detail = re.sub(r'(?<![~\w])(["\'])(/[^\n]*?)\1', quoted, detail)
+    detail = re.sub(r'(?<![~\w.])(["\'])(/[^\n]*?)\1', quoted, detail)
     return _hide_unquoted_absolute_paths(detail)
+
+
+def _abbreviate_home(detail, home):
+    """Shorten a home directory only where that directory actually ends."""
+    for directory in sorted({str(home), str(Path.home())}, key=len, reverse=True):
+        if directory:
+            detail = re.sub(re.escape(directory) + r'(?=/|\s|[\'"]|$)', '~', detail)
+    return detail
 
 
 def record_failure(home, action, error):
@@ -151,12 +140,11 @@ def record_failure(home, action, error):
     detail = getattr(cause, 'stderr', '') or str(error)
     if isinstance(detail, bytes):
         detail = detail.decode('utf-8', 'replace')
-    detail = re.sub(r'\b(?:https?|file)://[^\s\'"<>]+', '[链接已隐藏]', detail)
+    detail = re.sub(r'\b(?:https?|file|ssh|git)://[^\s\'"<>]+', '[链接已隐藏]', detail)
     detail = re.sub(r'(?im)\b(authorization|proxy-authorization|api[_-]?key|access[_-]?token|password|secret)\s*[:=][^\r\n]*',
                     '[凭据已隐藏]', detail)
     detail = re.sub(r'\b(?:gh[pousr]_|github_pat_|sk-)[A-Za-z0-9_-]+', '[凭据已隐藏]', detail)
-    for directory in sorted({str(home), str(Path.home())}, key=len, reverse=True):
-        detail = detail.replace(directory, '~')
+    detail = _abbreviate_home(detail, home)
     detail = _hide_paths_outside_home(detail)
     command = getattr(cause, 'cmd', [])
     step = command[command.index('-C') + 2] if isinstance(command, list) and '-C' in command else action
