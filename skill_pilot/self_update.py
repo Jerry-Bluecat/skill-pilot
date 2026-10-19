@@ -65,8 +65,70 @@ def git(project, *arguments, **options):
 
 
 def _path_tail(path):
-    name = Path(path).name
+    name = path.rstrip('/').rsplit('/', 1)[-1]
     return name or '[其他位置]'
+
+
+_PATH_STOP = set('\r\n\'"<>:;,)]，。；：、）】')
+
+
+def _path_token_end(detail, pos):
+    while pos < len(detail) and detail[pos] not in ' \t' and detail[pos] not in _PATH_STOP:
+        pos += 1
+    return pos
+
+
+def _path_continues(detail, pos):
+    """A spaced path keeps going when a later word still contains a slash."""
+    while pos < len(detail) and detail[pos] == ' ':
+        pos += 1
+    while pos < len(detail):
+        if detail[pos] in _PATH_STOP or detail[pos] in '\t/':
+            return False
+        end = _path_token_end(detail, pos)
+        if '/' in detail[pos:end]:
+            return True
+        pos = end
+        if pos < len(detail) and detail[pos] == ' ':
+            pos += 1
+            continue
+        return False
+    return False
+
+
+def _absolute_path_end(detail, start):
+    end = start
+    pos = start
+    while pos < len(detail):
+        token_end = _path_token_end(detail, pos)
+        if token_end == pos:
+            break
+        if '/' in detail[pos:token_end]:
+            end = token_end
+        elif not _path_continues(detail, token_end):
+            break
+        if token_end < len(detail) and detail[token_end] == ' ' and _path_continues(detail, token_end):
+            pos = token_end + 1
+            continue
+        break
+    return end
+
+
+def _hide_unquoted_absolute_paths(detail):
+    pieces = []
+    cursor = 0
+    for match in re.finditer(r'(?<![~\w])/', detail):
+        start = match.start()
+        if start < cursor:
+            continue
+        end = _absolute_path_end(detail, start)
+        if end <= start:
+            continue
+        pieces.append(detail[cursor:start])
+        pieces.append(_path_tail(detail[start:end]))
+        cursor = end
+    pieces.append(detail[cursor:])
+    return ''.join(pieces)
 
 
 def _hide_paths_outside_home(detail):
@@ -75,8 +137,7 @@ def _hide_paths_outside_home(detail):
         return match.group(1) + _path_tail(match.group(2)) + match.group(1)
 
     detail = re.sub(r'(?<![~\w])(["\'])(/[^\n]*?)\1', quoted, detail)
-    return re.sub(r'(?<![~\w])/(?:[^\s\'"<>:;,)]+)',
-                  lambda match: _path_tail(match.group(0)), detail)
+    return _hide_unquoted_absolute_paths(detail)
 
 
 def record_failure(home, action, error):
