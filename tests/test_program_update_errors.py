@@ -136,7 +136,7 @@ class ProgramUpdateErrorTests(unittest.TestCase):
 
     def test_failure_log_hides_paths_outside_home_only(self):
         inside = self.home / 'Library' / 'Logs' / 'update.log'
-        outside = Path('/var/opt/skill-pilot/self_update.py')
+        outside = self.root / 'var' / 'opt' / 'skill-pilot' / 'self_update.py'
         spaced = self.project / 'config.toml'
         cases = {
             'inside': (
@@ -144,7 +144,7 @@ class ProgramUpdateErrorTests(unittest.TestCase):
                 f'Permission denied: ~/{inside.relative_to(self.home).as_posix()}'),
             'outside': (
                 f"fatal: cannot open '{spaced}': No such file or directory ({outside})",
-                "fatal: cannot open 'config.toml': No such file or directory (self_update.py)"),
+                "fatal: cannot open '[路径已隐藏]': No such file or directory ([路径已隐藏])"),
             'plain': (
                 'Connection reset by peer; error: RPC failed; HTTP/2 403',
                 'Connection reset by peer; error: RPC failed; HTTP/2 403'),
@@ -160,12 +160,15 @@ class ProgramUpdateErrorTests(unittest.TestCase):
                 self.assertNotIn(str(self.home), detail)
                 self.assertNotIn(str(outside), detail)
                 self.assertNotIn(str(spaced), detail)
+                if name == 'outside':
+                    self.assertNotIn('self_update.py', detail)
+                    self.assertNotIn('config.toml', detail)
 
     def test_home_prefix_does_not_hide_a_longer_directory(self):
         home = str(self.home)
         foreign = f'{home}X/secret/notes.txt'
         cases = {
-            'quoted': (f"Permission denied: '{foreign}'", "Permission denied: 'notes.txt'"),
+            'quoted': (f"Permission denied: '{foreign}'", "Permission denied: '[路径已隐藏]'"),
             'plain': (f'Permission denied: {foreign}', None),
         }
         for name, (original, expected) in cases.items():
@@ -176,19 +179,28 @@ class ProgramUpdateErrorTests(unittest.TestCase):
                                      .read_text().splitlines()[-1])['detail']
                 if expected is not None:
                     self.assertEqual(detail, expected)
-                    self.assertNotIn('secret/notes.txt', detail)
                 self.assertNotIn('~X', detail)
                 self.assertNotIn(home, detail)
                 self.assertNotIn(foreign, detail)
-                self.assertIn('notes.txt', detail)
+                self.assertNotIn('notes.txt', detail)
                 self.assertIn('Permission denied', detail)
                 self.assertEqual(str(error), original)
 
     def test_following_words_are_not_swallowed_into_the_path(self):
         cases = {
+            'spaced': (
+                'fatal: could not read /opt/My Apps/x/file.py: Permission denied',
+                'fatal: could not read [路径已隐藏]: Permission denied'),
+            'spaced-name': (
+                '/opt/Skill Pilot copy 2/repo/.git/index.lock exists; remove it',
+                '[路径已隐藏] exists; remove it'),
+            'spaced-chinese': (
+                '无法读取 /opt/技能 目录/文件.py：权限不足',
+                '无法读取 [路径已隐藏]：权限不足'),
+            'paren': ('(/opt/a b/c)', '([路径已隐藏])'),
             'sentence': (
                 '/opt/x/y is not a git repo and src/main.py was skipped',
-                'y is not a git repo and src/main.py was skipped'),
+                '[路径已隐藏] is not a git repo and src/main.py was skipped'),
             'relative': (
                 'error: ./scripts/build.sh and ../other/repo and skill_pilot/self_update.py failed',
                 'error: ./scripts/build.sh and ../other/repo and skill_pilot/self_update.py failed'),
@@ -216,6 +228,25 @@ class ProgramUpdateErrorTests(unittest.TestCase):
         self.assertEqual(detail, expected)
         self.assertEqual(str(error), original)
 
+    def test_home_followed_by_punctuation_stays_shortened(self):
+        home = str(self.home)
+        cases = {
+            'colon': (f'fatal: {home}: Permission denied', 'fatal: ~: Permission denied'),
+            'paren': (f'({home})', '(~)'),
+            'comma': (f'{home}, next', '~, next'),
+            'period': (f'{home}.', '~.'),
+            'chinese': (f'{home}；权限不足', '~；权限不足'),
+        }
+        for name, (original, expected) in cases.items():
+            with self.subTest(name=name):
+                error = ValueError(original)
+                self_update.record_failure(self.home, 'check', error)
+                detail = json.loads((self.home / '.skill-pilot/logs/program-update.jsonl')
+                                     .read_text().splitlines()[-1])['detail']
+                self.assertEqual(detail, expected)
+                self.assertNotIn(home, detail)
+                self.assertEqual(str(error), original)
+
     def test_page_error_stays_specific_when_log_hides_outside_paths(self):
         outside = self.project / 'skill_pilot' / 'self_update.py'
         stderr = f"fatal: unable to read '{outside}': Connection reset by peer"
@@ -232,7 +263,8 @@ class ProgramUpdateErrorTests(unittest.TestCase):
         text = (self.home / '.skill-pilot/logs/program-update.jsonl').read_text()
         record = json.loads(text.splitlines()[-1])
         self.assertIn('Connection reset by peer', record['detail'])
-        self.assertIn('self_update.py', record['detail'])
+        self.assertIn('[路径已隐藏]', record['detail'])
+        self.assertNotIn('self_update.py', record['detail'])
         self.assertNotIn(str(outside), text)
         self.assertNotIn('Different Install Location', text)
 

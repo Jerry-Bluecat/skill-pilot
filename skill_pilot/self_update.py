@@ -64,12 +64,8 @@ def git(project, *arguments, **options):
             raise ValueError(f'SP {step}没有完成：{reason}{retry}。') from error
 
 
-def _path_tail(path):
-    name = path.rstrip('/').rsplit('/', 1)[-1]
-    return name or '[其他位置]'
-
-
 _PATH_STOP = set('\r\n\'"<>:;,)]，。；：、）】')
+_HIDDEN_PATH = '[路径已隐藏]'
 
 
 def _path_token_end(detail, pos):
@@ -78,20 +74,65 @@ def _path_token_end(detail, pos):
     return pos
 
 
+def _next_word(detail, pos):
+    """Return the next word after spaces, or None when the path should stop."""
+    if pos >= len(detail) or detail[pos] != ' ':
+        return None
+    nxt = pos + 1
+    while nxt < len(detail) and detail[nxt] == ' ':
+        nxt += 1
+    if nxt >= len(detail) or detail[nxt] in _PATH_STOP or detail[nxt] == '\t':
+        return None
+    word_end = _path_token_end(detail, nxt)
+    if word_end == nxt:
+        return None
+    return nxt, word_end
+
+
+def _through_continued_path(detail, pos):
+    """Plain words stay in the path when a later word still continues that path.
+
+    A single slash after ordinary words is a separate relative path, so the
+    sentence in front of it is left alone.
+    """
+    scan = pos
+    while scan < len(detail):
+        if detail[scan] in _PATH_STOP or detail[scan] == '\t':
+            return None
+        if detail[scan] == ' ':
+            scan += 1
+            continue
+        word_end = _path_token_end(detail, scan)
+        if word_end == scan:
+            return None
+        slashes = detail[scan:word_end].count('/')
+        if slashes >= 2:
+            return word_end
+        if slashes == 1:
+            nxt = _next_word(detail, word_end)
+            if nxt and '/' in detail[nxt[0]:nxt[1]]:
+                scan = word_end
+                continue
+            return None
+        scan = word_end
+    return None
+
+
 def _absolute_path_end(detail, start):
-    """Join the next word only when it starts with /, or this segment ends with /."""
+    """Join a word that already contains /, and stop at an ordinary word."""
     end = _path_token_end(detail, start)
-    while end < len(detail) and detail[end] == ' ':
-        nxt = end + 1
-        if nxt >= len(detail) or detail[nxt] in _PATH_STOP or detail[nxt] == '\t':
+    while True:
+        found = _next_word(detail, end)
+        if not found:
             break
-        word_end = _path_token_end(detail, nxt)
-        if word_end == nxt:
-            break
-        if detail[nxt] == '/' or detail[end - 1] == '/':
+        word_start, word_end = found
+        if '/' in detail[word_start:word_end]:
             end = word_end
             continue
-        break
+        continued = _through_continued_path(detail, word_start)
+        if continued is None:
+            break
+        end = continued
     return end
 
 
@@ -106,26 +147,54 @@ def _hide_unquoted_absolute_paths(detail):
         if end <= start:
             continue
         pieces.append(detail[cursor:start])
-        pieces.append(_path_tail(detail[start:end]))
+        pieces.append(_HIDDEN_PATH)
         cursor = end
     pieces.append(detail[cursor:])
     return ''.join(pieces)
 
 
 def _hide_paths_outside_home(detail):
-    """Keep home-relative paths, and leave only the file name of any other absolute path."""
+    """Keep home-relative paths, and hide every other absolute path."""
     def quoted(match):
-        return match.group(1) + _path_tail(match.group(2)) + match.group(1)
+        return match.group(1) + _HIDDEN_PATH + match.group(1)
 
     detail = re.sub(r'(?<![~\w.])(["\'])(/[^\n]*?)\1', quoted, detail)
     return _hide_unquoted_absolute_paths(detail)
 
 
+def _home_ends(detail, index):
+    """True when the home directory is not just the prefix of a longer name."""
+    if index >= len(detail):
+        return True
+    character = detail[index]
+    if character == '/' or character.isspace() or character in _PATH_STOP:
+        return True
+    if character == '.' and (index + 1 >= len(detail) or not (detail[index + 1].isalnum() or detail[index + 1] == '_')):
+        return True
+    return False
+
+
 def _abbreviate_home(detail, home):
     """Shorten a home directory only where that directory actually ends."""
     for directory in sorted({str(home), str(Path.home())}, key=len, reverse=True):
-        if directory:
-            detail = re.sub(re.escape(directory) + r'(?=/|\s|[\'"]|$)', '~', detail)
+        if not directory:
+            continue
+        pieces = []
+        start = 0
+        while True:
+            found = detail.find(directory, start)
+            if found < 0:
+                pieces.append(detail[start:])
+                break
+            after = found + len(directory)
+            if _home_ends(detail, after):
+                pieces.append(detail[start:found])
+                pieces.append('~')
+                start = after
+            else:
+                pieces.append(detail[start:after])
+                start = after
+        detail = ''.join(pieces)
     return detail
 
 
