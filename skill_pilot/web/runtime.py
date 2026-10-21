@@ -33,7 +33,6 @@ def snapshot(server):
     state = {name: getattr(server, name) for name in
              ('token', 'inventory', 'install_reviews', 'team_upload_reviews',
               'update_reviews', 'labels_progress', 'program_review', 'program_progress')}
-    state['team_queue'] = server.team_queue_status()['items']
     return state
 
 

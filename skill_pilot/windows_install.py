@@ -1,13 +1,55 @@
 """Install Windows desktop and command-line entry points for the current user."""
 import os
 from pathlib import Path
-import subprocess
 import shutil
 
 
 def entries(home):
     return [Path(home) / '.local/bin/skill-pilot.cmd',
             Path(home) / 'AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Skill Pilot.lnk']
+
+
+def create_shortcut(shortcut, executable, arguments, directory):
+    """Use IShellLinkW/IPersistFile: WScript shortcuts lose non-ANSI paths.
+
+    Interface layout: Windows SDK shobjidl_core.h (IShellLinkW) and
+    objidl.h (IPersistFile); https://learn.microsoft.com/windows/win32/shell/links
+    """
+    import ctypes as c
+    import uuid
+    class GUID(c.Structure):
+        _fields_ = [('data1', c.c_uint32), ('data2', c.c_uint16), ('data3', c.c_uint16), ('data4', c.c_ubyte * 8)]
+    def guid(value):
+        return GUID.from_buffer_copy(uuid.UUID(value).bytes_le)
+    def checked(code):
+        if code < 0:
+            raise OSError(f'创建 Windows 快捷方式失败（0x{code & 0xffffffff:08x}）。')
+    def call(pointer, slot, types=(), values=()):
+        vtable = c.cast(pointer, c.POINTER(c.POINTER(c.c_void_p))).contents
+        function = c.WINFUNCTYPE(c.c_long, c.c_void_p, *types)(vtable[slot])
+        checked(function(pointer, *values))
+    ole = c.OleDLL('ole32')
+    ole.CoInitializeEx.argtypes = [c.c_void_p, c.c_uint32]
+    ole.CoInitializeEx.restype = c.c_long
+    ole.CoCreateInstance.argtypes = [c.POINTER(GUID), c.c_void_p, c.c_uint32, c.POINTER(GUID), c.POINTER(c.c_void_p)]
+    ole.CoCreateInstance.restype = c.c_long
+    ole.CoUninitialize.argtypes = []
+    ole.CoUninitialize.restype = None
+    checked(ole.CoInitializeEx(None, 2))
+    shell, persist = c.c_void_p(), c.c_void_p()
+    try:
+        clsid = guid('00021401-0000-0000-c000-000000000046')
+        shell_iid = guid('000214f9-0000-0000-c000-000000000046')
+        checked(ole.CoCreateInstance(c.byref(clsid), None, 1, c.byref(shell_iid), c.byref(shell)))
+        for slot, value in ((20, executable), (11, arguments), (9, directory), (7, 'Skill Pilot')):
+            call(shell, slot, (c.c_wchar_p,), (str(value),))
+        persist_iid = guid('0000010b-0000-0000-c000-000000000046')
+        call(shell, 0, (c.POINTER(GUID), c.POINTER(c.c_void_p)), (c.byref(persist_iid), c.byref(persist)))
+        call(persist, 6, (c.c_wchar_p, c.c_int), (str(shortcut), 1))
+    finally:
+        if persist: call(persist, 2)
+        if shell: call(shell, 2)
+        ole.CoUninitialize()
 
 
 def install(project, home):
@@ -37,22 +79,6 @@ def install(project, home):
     temporary = cli.with_suffix('.cmd.tmp')
     temporary.write_text(command, encoding='utf-8', newline='\r\n')
     temporary.replace(cli)
-    env = {**tools, 'SP_SHORTCUT': str(shortcut), 'SP_PYTHONW': str(pythonw),
-           'SP_PROJECT': str(project), 'SP_LAUNCHER': str(project / 'scripts/launch-windows.py')}
-    script = '''$ErrorActionPreference = 'Stop'
-$shell = New-Object -ComObject WScript.Shell
-$link = $shell.CreateShortcut($env:SP_SHORTCUT)
-$link.TargetPath = $env:SP_PYTHONW
-$link.Arguments = '-X utf8 -B "' + $env:SP_LAUNCHER + '"'
-$link.WorkingDirectory = $env:SP_PROJECT
-$link.Description = 'Skill Pilot'
-$link.Save()
-'''
-    result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script],
-                            env=env, capture_output=True, timeout=20,
-                            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-    if result.returncode:
-        raise ValueError('开始菜单入口没能更新，请检查目录权限。') from subprocess.CalledProcessError(
-            result.returncode, ['powershell.exe'], stderr=result.stderr)
+    create_shortcut(shortcut, pythonw, '-X utf8 -B "' + str(project / 'scripts/launch-windows.py') + '"', project)
     from .self_update import record_installation
     record_installation(project)

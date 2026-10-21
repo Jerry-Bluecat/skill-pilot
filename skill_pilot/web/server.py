@@ -43,7 +43,7 @@ class Dashboard(ThreadingHTTPServer):
         extra_sources.ensure(self.home)
         self.install_reviews = session.get('install_reviews', {})
         self.team_upload_reviews = session.get('team_upload_reviews', {})
-        self.team_queue = session.get('team_queue', [])
+        self.team_queue = []
         self.team_queue_lock = threading.RLock()
         self.team_queue_thread = None
         self.update_reviews = session.get('update_reviews', {})
@@ -469,6 +469,16 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(403, {"error": "请求来源不属于本次看板。"})
             return
         path = urllib.parse.urlsplit(self.path).path
+        if path in {'/api/heartbeat', '/api/runtime/refresh'}:
+            # Consume small optional bodies before closing the HTTP/1.0
+            # connection; unread request bytes can reset the reply on Windows.
+            try:
+                length = int(self.headers.get('Content-Length', '0'))
+                if not 0 <= length <= 1024 or len(self.rfile.read(length)) != length:
+                    raise ValueError()
+            except (ValueError, OSError):
+                self.reply(400, {'error': '请求内容不正确，请刷新后重试。'})
+                return
         if path == "/api/heartbeat":
             query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
             page = query.get("page", [""])[0]
