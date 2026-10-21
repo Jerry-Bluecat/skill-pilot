@@ -105,7 +105,7 @@ class Dashboard(ThreadingHTTPServer):
             self.program_thread.join()
         if self.reload_thread: self.reload_thread.join()
         if self.program_review:
-            shutil.rmtree(self.program_review['temporary'], ignore_errors=True)
+            rmtree(self.program_review['temporary'], ignore_errors=True)
 
     def _program_thread_blocks_exit(self):
         # 打开看板时的自动检查不挡住关看板和刷新应用新版；手动检查和升级仍要等。
@@ -198,7 +198,7 @@ class Dashboard(ThreadingHTTPServer):
         try:
             if action == 'check':
                 if self.program_review:
-                    shutil.rmtree(self.program_review['temporary'], ignore_errors=True)
+                    rmtree(self.program_review['temporary'], ignore_errors=True)
                 self.program_review = None
                 self.program_review = self_update.check(self.home)
                 review = self.program_review

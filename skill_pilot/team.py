@@ -1,5 +1,6 @@
 """Dashboard backend for the authenticated team skill store."""
 import base64
+from .platform_support import rmtree
 import copy
 import fnmatch
 import hashlib
@@ -431,7 +432,7 @@ def install(home, key):
                     shutil.copytree(found['path'], path, symlinks=True, ignore=shutil.ignore_patterns(*SKIP_CONTENT))
                     items[name] = {**found, 'path': str(path)}
                 finally:
-                    shutil.rmtree(download['temporary'], ignore_errors=True)
+                    rmtree(download['temporary'], ignore_errors=True)
 
         class AlreadyInstalled(ValueError):
             pass

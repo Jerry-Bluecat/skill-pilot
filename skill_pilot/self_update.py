@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .environment import tool_environment
+from .platform_support import rmtree
 from .sources.github import git as repository_git
 from .store import PROJECT, guard, write_allowed
 
@@ -215,7 +216,7 @@ def check(home, project=PROJECT):
                 'latest': git(candidate, 'show', '-s', '--format=%cI', target),
                 'available': before['checkout'] or files != before['files']}
     except BaseException:
-        shutil.rmtree(temporary, ignore_errors=True)
+        rmtree(temporary, ignore_errors=True)
         raise
 
 
@@ -339,7 +340,7 @@ def apply(review, home, project=PROJECT):
                     marker.unlink(missing_ok=True)
                 for index, entry in enumerate(entries):
                     if entry.is_dir():
-                        shutil.rmtree(entry)
+                        rmtree(entry)
                     else:
                         entry.unlink(missing_ok=True)
                     saved = backup / str(index)
@@ -353,5 +354,5 @@ def apply(review, home, project=PROJECT):
             raise ValueError('升级没有完成，已恢复原版，可以继续使用。请稍后重试。') from error
     finally:
         if not retain_backup:
-            shutil.rmtree(backup, ignore_errors=True)
+            rmtree(backup, ignore_errors=True)
     return {'available': False, 'current': review['latest'], 'latest': review['latest']}
