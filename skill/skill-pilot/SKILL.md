@@ -36,4 +36,4 @@ description: 管理本机各 agent 的技能，查看和导出技能清单、打
 
 开发和只读检查真实主目录时，所有命令前加 `SKILL_PILOT_READ_ONLY=1`；此模式禁止写入，也不会自动安装本技能。不要执行被管理技能里的脚本。
 
-Windows 本机适配：从开始菜单打开 Skill Pilot。需要 Python 3.12+ 和 Windows 开发者模式。首次接入由用户在看板核对整理；安装工具本身不等于授权整理已有技能。Windows 版不自动升级飞书 CLI，按本机飞书规则手动处理。
+Windows：从开始菜单打开 Skill Pilot。需要 Python 3.12+ 和 Windows 开发者模式。首次接入由用户在看板核对整理；安装工具本身不等于授权整理已有技能。Windows 版不自动升级飞书 CLI，按本机飞书规则手动处理。

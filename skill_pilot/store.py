@@ -1,4 +1,4 @@
-from .platform_support import readlink, rmtree
+from .platform_support import readlink, rmtree, is_junction
 """Backed-up local migration and guarded, reversible writes."""
 from .platform_support import fcntl, user_home, user_id, check_directory_links
 import hashlib
@@ -47,7 +47,7 @@ def guard(path, home):
 
 def check_links(path, home):
     """Check even broken links, and do not walk through directory links."""
-    if path.is_symlink() or path.is_junction():
+    if path.is_symlink() or is_junction(path):
         if not path.resolve().is_relative_to(home):
             raise ValueError("目录中的链接指向主目录之外，已停止操作。")
     elif path.is_dir():
@@ -63,7 +63,7 @@ def physical_state(path, include_times=False):
         mode = stat.S_IMODE(info.st_mode)
         if include_times:
             rows.append((relative, "modified", info.st_mtime_ns))
-        if p.is_symlink() or p.is_junction():
+        if p.is_symlink() or is_junction(p):
             rows.append((relative, "link", mode, readlink(p)))
         elif p.is_dir():
             rows.append((relative, "dir", mode))
@@ -230,7 +230,7 @@ def preview(home=None, agent_ids=None):
 
 def remove(path, checked):
     checked(path)
-    if path.is_junction():
+    if is_junction(path):
         path.rmdir()  # Remove the entry only, never traverse its target.
     elif path.is_symlink() or path.is_file():
         path.unlink()
@@ -272,7 +272,7 @@ def backup(home, plan, checked):
         for relative in manifest["existing"]:
             def included(info):
                 original = home / info.name
-                if os.name == 'nt' and original.is_junction():
+                if os.name == 'nt' and is_junction(original):
                     info.type = tarfile.SYMTYPE
                     info.linkname = readlink(original)
                     info.size = 0

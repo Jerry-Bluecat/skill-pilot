@@ -1,12 +1,10 @@
 """Windows installation, successive official updates, conflicts and rollback."""
-import io
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 import time
 import unittest
@@ -14,7 +12,7 @@ import urllib.parse
 import urllib.request
 from unittest.mock import patch
 
-from skill_pilot import self_update, store, windows_update
+from skill_pilot import self_update, store, windows_install
 from skill_pilot.platform_support import rmtree
 from skill_pilot.sources.github import git
 
@@ -26,9 +24,11 @@ class WindowsUpdateTests(unittest.TestCase):
         cls.root = Path(tempfile.mkdtemp(prefix='Skill Pilot Windows tests ')).resolve()
         cls.official = cls.root / 'Official Source'
         cls.official.mkdir()
-        archive = subprocess.check_output(['git', '-C', str(store.PROJECT), 'archive', 'HEAD'])
-        with tarfile.open(fileobj=io.BytesIO(archive)) as bundle:
-            bundle.extractall(cls.official, filter='data')
+        for name in ('skill_pilot', 'scripts', 'assets', 'docs', 'skill'):
+            shutil.copytree(store.PROJECT / name, cls.official / name,
+                            ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+        for name in ('README.md', 'WINDOWS.md', '.gitignore', 'skill-pilot'):
+            shutil.copy2(store.PROJECT / name, cls.official / name)
         git(cls.official, 'init', '-q', '-b', 'main')
         cls.commit('baseline')
         cls.base = git(cls.official, 'rev-parse', 'HEAD')
@@ -44,12 +44,11 @@ class WindowsUpdateTests(unittest.TestCase):
 
     def setUp(self):
         self.area = self.root / self._testMethodName
-        self.home = self.area / 'User With Spaces'
+        self.home = self.area / 'User With Spaces 中文'
         self.home.mkdir(parents=True)
         self.project = self.area / 'Installed Program'
-        source = Path(os.environ['SP_TEST_BUNDLE'])
-        shutil.copytree(source, self.project)
         git(self.official, 'reset', '--hard', self.base)
+        shutil.copytree(self.official, self.project, ignore=shutil.ignore_patterns('.git'))
         self_update.record_installation(self.project, self.base, '2026-10-21T00:00:00Z')
         self.source_patch = patch.object(self_update, 'SOURCE', self.official.as_uri())
         self.source_patch.start()
@@ -70,7 +69,7 @@ class WindowsUpdateTests(unittest.TestCase):
         sentinel = self.home / '.skill-pilot/settings.json'
         sentinel.parent.mkdir()
         sentinel.write_text('{"test":"leave intact"}')
-        windows_update.install(self.project, self.home)
+        windows_install.install(self.project, self.home)
         for label in ('release one', 'release two'):
             review = self.update(label)
             self.assertTrue(review['available'])
@@ -79,13 +78,13 @@ class WindowsUpdateTests(unittest.TestCase):
             self.assertIn('windows_runtime', (self.project / 'skill_pilot/web/server.py').read_text())
             self.assertIn(label, (self.project / 'skill_pilot/web/server.py').read_text())
             self.assertFalse(self_update.check(self.home, self.project)['available'])
-            self.assertTrue(all(path.is_file() for path in windows_update.entries(self.home)))
+            self.assertTrue(all(path.is_file() for path in windows_install.entries(self.home)))
             self.assertEqual(sentinel.read_text(), '{"test":"leave intact"}')
 
     def test_failed_install_restores_program_and_entry(self):
-        windows_update.install(self.project, self.home)
+        windows_install.install(self.project, self.home)
         before = self_update.installed(self.project)
-        cli = windows_update.entries(self.home)[0]
+        cli = windows_install.entries(self.home)[0]
         entry = cli.read_bytes()
         review = self.update('rollback release')
         def fail(*args):
@@ -97,13 +96,28 @@ class WindowsUpdateTests(unittest.TestCase):
         self.assertEqual(self_update.installed(self.project), before)
         self.assertEqual(cli.read_bytes(), entry)
 
-    def test_conflicting_official_change_preserves_install(self):
+    def test_source_checkout_updates_and_installed_cli_works(self):
+        rmtree(self.project)
+        git(self.area, 'clone', '--quiet', self.official.as_uri(), str(self.project))
+        self_update.record_installation(self.project)
+        review = self.update('source checkout release')
+        self.assertTrue(review['before']['checkout'])
+        self_update.apply(review, self.home, self.project)
+        self.assertEqual(git(self.project, 'rev-parse', 'HEAD'), review['target'])
+        cli = windows_install.entries(self.home)[0]
+        result = subprocess.run([os.environ.get('COMSPEC', 'cmd.exe'), '/d', '/c', str(cli), '--help'],
+                                env={**os.environ, 'SKILL_PILOT_HOME': str(self.home), 'SKILL_PILOT_READ_ONLY': '1'},
+                                capture_output=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
+        self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', 'replace'))
+        self.assertIn('Skill Pilot', result.stdout.decode('utf-8', 'replace'))
+
+    def test_unrunnable_official_update_preserves_install(self):
         original = self_update.installed(self.project)
         path = self.official / 'skill_pilot/web/server.py'
-        content = path.read_text(encoding='utf-8').replace('import fcntl', 'import incompatible_locking')
+        content = path.read_text(encoding='utf-8') + '\nimport incompatible_locking\n'
         path.write_text(content, encoding='utf-8')
         self.commit('conflict')
-        with self.assertRaisesRegex(ValueError, '冲突'):
+        with self.assertRaisesRegex(ValueError, '新版暂时无法'):
             self_update.check(self.home, self.project)
         self.assertEqual(self_update.installed(self.project), original)
 

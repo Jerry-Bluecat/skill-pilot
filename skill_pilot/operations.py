@@ -231,7 +231,7 @@ def assignment_plan(registry, agents, changes, home=None):
     external = external_disable_rules(registry, home)
     def require_enabled(name, agent):
         if externally_disabled(name, result['skills'][name], agent, home, external, planned=True):
-            raise ValueError(f'{catalog[agent]["name"]} 中的「{name}」已由你停用，原设置已保留。请先在该助手中启用它，或取消给该助手安装。')
+            raise ValueError(f'{catalog[agent]["name"]} 的独立停用设置中，「{name}」已由你停用，原设置已保留。请先在该助手中启用它，或取消给该助手安装。')
     explicit_removals, changed, reasons, auto_added = set(), set(), [], []
     for change in changes:
         name, agent, enabled = change['skill'], change['agent'], change['enabled']

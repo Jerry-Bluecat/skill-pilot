@@ -130,14 +130,9 @@ def bundle_files(project):
         paths = [p for name in BUNDLE_DIRS for p in (project / name).rglob('*')
                  if p.is_file() and '__pycache__' not in p.parts]
         paths += list(project.glob('*.md'))
-        for name in ('.gitignore', '.claude/launch.json', 'skill-pilot'):
+        for name in ('.gitignore', '.gitattributes', '.claude/launch.json', 'skill-pilot'):
             if (project / name).exists():
                 paths.append(project / name)
-    from .windows_update import RECORD as windows_record
-    if (project / windows_record).exists():
-        overlay = json.loads((project / windows_record).read_text(encoding='utf-8'))
-        paths += [safe_path(project, name) for name in overlay['base']]
-        paths.append(project / windows_record)
     return {p.relative_to(project).as_posix(): stamp(safe_path(project, p.relative_to(project).as_posix()))
             for p in sorted(paths) if p.name != '.DS_Store' and p.suffix != '.pyc'}
 
@@ -211,9 +206,6 @@ def check(home, project=PROJECT):
                 git(candidate, 'merge-base', '--is-ancestor', before['revision'], target)
             except ValueError as error:
                 raise ValueError('当前 SP 含有与公开版本不同的改动，已保留当前版本。请先另存后重新下载安装。') from error
-        if os.name == 'nt' and (project / '.skill-pilot-windows.json').is_file():
-            from .windows_update import prepare
-            prepare(project, candidate)
         files = bundle_files(candidate)
         for name in ('skill_pilot/cli.py', 'skill_pilot/web/server.py', 'scripts/install.py', 'assets/SkillPilot.icns'):
             if name not in files:
@@ -298,7 +290,7 @@ def apply(review, home, project=PROJECT):
             shutil.copy2(marker, backup / 'record')
         entries = [home / 'Applications/Skill Pilot.app', home / '.local/bin/skill-pilot']
         if os.name == 'nt':
-            from .windows_update import entries as windows_entries
+            from .windows_install import entries as windows_entries
             entries = windows_entries(home)
         for index, entry in enumerate(entries):
             if entry.is_symlink() or any(p.is_symlink() for p in entry.parents if p.is_relative_to(home)):

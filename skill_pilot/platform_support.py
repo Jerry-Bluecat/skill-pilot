@@ -16,6 +16,8 @@ def readlink(path):
 def rmtree(path, ignore_errors=False):
     import shutil
     import stat
+    if os.name != 'nt':
+        return shutil.rmtree(path, ignore_errors=ignore_errors)
     def retry(function, name, error):
         try:
             if os.name != 'nt' or not isinstance(error, PermissionError):
@@ -26,6 +28,10 @@ def rmtree(path, ignore_errors=False):
             if not ignore_errors:
                 raise
     return shutil.rmtree(path, onexc=retry)
+
+
+def is_junction(path):
+    return os.name == 'nt' and Path(path).is_junction()
 
 
 def user_home():

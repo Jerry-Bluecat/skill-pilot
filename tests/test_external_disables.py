@@ -1,11 +1,10 @@
 """External Codex preferences must not block unrelated local or team installs."""
-import copy
 import json
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from skill_pilot import operations, store, team
+from skill_pilot import operations, store
 from skill_pilot.platform_support import rmtree
 from skill_pilot.sources import github
 from skill_pilot.sync import visibility
@@ -35,7 +34,7 @@ class ExternalDisableTests(unittest.TestCase):
         return review
 
     def test_name_and_path_preferences_allow_install_and_exact_undo(self):
-        first = self.disable({'name': 'other', 'enabled': False})
+        self.disable({'name': 'other', 'enabled': False})
         config = self.disable({'path': str(self.home / '.codex/skills/grilling/SKILL.md'), 'enabled': False})
         before = self.fingerprint()
         table = operations.table(self.home)
