@@ -1,5 +1,6 @@
 """Dashboard backend for the authenticated team skill store."""
 import base64
+from .platform_support import rmtree
 import copy
 import fnmatch
 import hashlib
@@ -431,7 +432,7 @@ def install(home, key):
                     shutil.copytree(found['path'], path, symlinks=True, ignore=shutil.ignore_patterns(*SKIP_CONTENT))
                     items[name] = {**found, 'path': str(path)}
                 finally:
-                    shutil.rmtree(download['temporary'], ignore_errors=True)
+                    rmtree(download['temporary'], ignore_errors=True)
 
         class AlreadyInstalled(ValueError):
             pass
@@ -512,7 +513,7 @@ def _files(root):
 def _candidates(home, registry, member, cards):
     shared = _owned(cards, member['id'])
     result = {}
-    for row in sharing.export_config(home)['skills']:
+    for row in sharing.export_config(home, translated_description=True)['skills']:
         name = row['name']
         skill = registry['skills'][name]
         origin = _origin(skill)

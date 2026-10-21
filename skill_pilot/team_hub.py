@@ -1,7 +1,7 @@
 """Authenticated LAN skill store. Uploaded files are data, never executed."""
 import base64
 import binascii
-import fcntl
+from .platform_support import fcntl
 import hashlib
 import hmac
 import json
@@ -122,7 +122,7 @@ def clean_listing(row, packaged=False):
         result['note'] = short_text(row['note'], '推荐语')
     if kind == 'github':
         result['source'] = {k: source[k] for k in ('kind', 'repository', 'path', 'commit') if k in source}
-        result['source']['path'] = str(Path(source['path']))
+        result['source']['path'] = Path(source['path']).as_posix()
         if 'tree_sha' in source:
             if not isinstance(source['tree_sha'], str) or not re.fullmatch(r'[0-9a-f]{40}', source['tree_sha']):
                 raise ValueError('技能来源的版本记录不正确。')

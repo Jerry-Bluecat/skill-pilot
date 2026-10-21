@@ -101,6 +101,7 @@ class RefreshRequestTests(unittest.TestCase):
             self.assertTrue(self.changed.wait(2))
 
 
+@unittest.skipIf(os.name == "nt", "POSIX process fixtures; Windows refresh covered by test_windows_update")
 class ProcessRefreshTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix='skill-pilot-runtime-')

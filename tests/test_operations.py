@@ -129,19 +129,25 @@ class OperationsTests(unittest.TestCase):
     def test_pending_assignment_cannot_bypass_config_modes_or_invalid_content(self):
         config = self.home / '.codex/config.toml'
         original, mode = config.read_text(), config.stat().st_mode
-        for change in ('mode', 'invalid'):
-            with self.subTest(change=change):
-                config.write_text(original)
-                config.chmod(mode)
-                view = operations.table(self.home)
-                if change == 'mode':
-                    config.chmod(0o600 if mode & 0o777 != 0o600 else 0o644)
-                else:
-                    config.write_text('[skills]\nconfig = [ broken')
-                before = self.fingerprint()
-                with self.assertRaises(ValueError):
-                    self.assign('other', 'claude', expected=view['revision'], confirmed=True)
-                self.assertEqual(self.fingerprint(), before)
+        try:
+            for change in ('mode', 'invalid'):
+                with self.subTest(change=change):
+                    config.chmod(mode)
+                    config.write_text(original)
+                    view = operations.table(self.home)
+                    if change == 'mode':
+                        if os.name == 'nt':
+                            config.chmod(0o444 if mode & 0o200 else 0o666)
+                        else:
+                            config.chmod(0o600 if mode & 0o777 != 0o600 else 0o644)
+                    else:
+                        config.write_text('[skills]\nconfig = [ broken')
+                    before = self.fingerprint()
+                    with self.assertRaises(ValueError):
+                        self.assign('other', 'claude', expected=view['revision'], confirmed=True)
+                    self.assertEqual(self.fingerprint(), before)
+        finally:
+            config.chmod(mode)
 
     def test_assignment_revision_does_not_relax_undo_guard(self):
         view = operations.table(self.home)

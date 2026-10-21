@@ -88,7 +88,8 @@ class TeamHubTests(unittest.TestCase):
         self.assertEqual(json.loads(saved)['members'][0]['token_sha256'], hashlib.sha256(self.first['token'].encode()).hexdigest())
         self.assertNotIn(self.first['token'], saved)
         self.assertNotIn('token', json.dumps(self.store.members()))
-        self.assertEqual(stat.S_IMODE((self.data / 'members.json').stat().st_mode), 0o600)
+        if os.name != 'nt':
+            self.assertEqual(stat.S_IMODE((self.data / 'members.json').stat().st_mode), 0o600)
         self.assertEqual(self.request(), (200, {'service': 'skill-pilot-team', 'api': 2,
             'member': {k: self.first[k] for k in ('id', 'name')}}))
         for name in ('', '  ', 'Acme\nexample', 'Acme\x00example'):

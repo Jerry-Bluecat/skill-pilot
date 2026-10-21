@@ -1,3 +1,4 @@
+from skill_pilot.platform_support import rmtree
 from tests import set_up_home
 import json
 import threading
@@ -280,7 +281,7 @@ class M3WebTests(MigrationWebTests):
         self.assertTrue(result['conflicts'])
         self.assertIn('comparison',self.request('/api/incoming/compare',{'name':'new','review_id':review['id']})[1])
         import shutil
-        shutil.rmtree(review['temporary'])
+        rmtree(review['temporary'])
 
     def test_readonly_target_write_denied(self):
         _,table=self.request('/api/table')

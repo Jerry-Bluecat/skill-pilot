@@ -1,3 +1,4 @@
+from .platform_support import rmtree
 """M4 read-only reviews, confirmed batches, and preview-only Codex merging."""
 import hashlib
 import json
@@ -31,9 +32,9 @@ def comparison(left, right):
         if a == b and am == bm:
             continue
         changed.append(name)
-        if 'scripts' in Path(name).parts or Path(name).suffix.lower() in SCRIPT_SUFFIXES or am & 0o111 or bm & 0o111:
+        if 'scripts' in Path(name).parts or Path(name).suffix.lower() in SCRIPT_SUFFIXES or am & 0o111 or bm & 0o111 or a.startswith(b'#!') or b.startswith(b'#!'):
             scripts.append(name)
-            if bm & 0o111: risks.append({'file': name, 'line': '新版中新增或改动了可执行文件'})
+            if bm & 0o111 or b.startswith(b'#!'): risks.append({'file': name, 'line': '新版中新增或改动了可执行文件'})
             risks.extend({'file': name, 'line': line} for line in b.decode(errors='replace').splitlines()
                          if RISK_WORDS.search(line))
         details.append('文件：' + name)
@@ -291,7 +292,7 @@ def prepare_merge(review, name):
     merged = research.merge(material)
     root = Path(review['temporary']) / ('merged-' + name)
     if root.exists():
-        shutil.rmtree(root)
+        rmtree(root)
     root.mkdir()
     seen = set()
     for item in merged['files']:
@@ -405,11 +406,11 @@ def _apply_group(review, names, choices, merge_ids, batch):
             incoming = Path(row['_merge']['path']) if row['_choice'] == 'merge' else Path(row['_upstream_path'])
             if row['_choice'] != 'keep':
                 destination = checked(home / '.skill-pilot/store' / name)
-                shutil.rmtree(destination); shutil.copytree(incoming, destination, symlinks=True)
+                rmtree(destination); shutil.copytree(incoming, destination, symlinks=True)
                 skill['normalization'] = row.get('normalization', normalization.apply(destination))
             base = checked(home / '.skill-pilot/bases' / name)
             if base.exists():
-                shutil.rmtree(base)
+                rmtree(base)
             base.parent.mkdir(parents=True, exist_ok=True)
             shutil.copytree(row['_upstream_path'], base, symlinks=True)
             normalization.apply(base)

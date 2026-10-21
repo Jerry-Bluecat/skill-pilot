@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
-from skill_pilot import operations, sharing, store, team, team_hub, updates, research
+from skill_pilot import operations, sharing, store, team, team_hub, updates, research, self_update
 from skill_pilot.sources import github, normalize
 from tests.test_team_hub import listing, file as package_file
 from skill_pilot.web import runtime
@@ -162,6 +162,42 @@ class TeamTests(unittest.TestCase):
                 github, 'api', side_effect=AssertionError('fallback must not require the GitHub CLI')):
             yield
 
+    def test_team_descriptions_use_translation_without_changing_files_or_config_export(self):
+        self.configure()
+        before = self.library(self.home)
+        self.publish(('acme-local', 'acme-main'))
+        original = team._owned(team._fetch(self.home)[2], self.first['id'])
+        translated = '中文完整说明\n保留产品名 Acme。'
+        groups = {'groups': [{'name': '示例分组', 'skills': {
+            name: {'title': '示例技能', 'summary': '示例用途', 'description': translated}
+            for name in ('acme-local', 'acme-main')}}]}
+        (self.home / '.skill-pilot/labels.json').write_text(json.dumps(groups))
+        candidates = {r['name']: r for r in team.listing_candidates(self.home)['skills']}
+        self.assertEqual(candidates['acme-local']['description'], translated)
+        preview = self.publish(('acme-local', 'acme-main'))
+        descriptions = {r['name']: r['description'] for r in preview['listings']}
+        self.assertEqual(candidates['acme-base']['description'], 'Acme 示例说明')  # No cached translation.
+        cards = self.cards()
+        published = team._owned(team._fetch(self.home)[2], self.first['id'])
+        for name in ('acme-local', 'acme-main'):
+            self.assertEqual(descriptions[name], translated)
+            self.assertEqual(cards[name]['description'], translated)
+            self.assertEqual(published[name]['source'], original[name]['source'])
+        self.assertTrue(all(r['description'] == 'Acme 示例说明' for r in sharing.export_config(self.home)['skills']))
+        self.assertEqual(self.library(self.home), before)
+
+    def test_team_translation_uses_existing_text_limits_and_empty_fallback(self):
+        self.configure()
+        groups = {'groups': [{'name': '示例分组', 'skills': {
+            'acme-local': {'title': '示例技能', 'summary': '示例用途',
+                           'description': '中\t文\x00\u200b\r\n' + '字' * 1600},
+            'acme-main': {'title': '示例技能', 'summary': '示例用途', 'description': '  '}}}]}
+        (self.home / '.skill-pilot/labels.json').write_text(json.dumps(groups))
+        preview = self.publish(('acme-local', 'acme-main'))
+        descriptions = {r['name']: r['description'] for r in preview['listings']}
+        self.assertEqual(descriptions['acme-local'], ('中 文\n' + '字' * 1600)[:1500])
+        self.assertEqual(descriptions['acme-main'], 'Acme 示例说明')
+
     def test_two_users_publish_install_files_and_github_with_dependencies_and_undo(self):
         self.configure()
         path = self.home / '.skill-pilot/store/acme-local'
@@ -201,7 +237,8 @@ class TeamTests(unittest.TestCase):
         destination = self.other / '.skill-pilot/store/acme-local'
         self.assertFalse((destination / '.env').exists())
         self.assertEqual((destination / 'example.bin').read_bytes(), b'\x00\xff\x01')
-        self.assertTrue((destination / 'example.sh').stat().st_mode & 0o111)
+        if os.name != 'nt':
+            self.assertTrue((destination / 'example.sh').stat().st_mode & 0o111)
         self.assertEqual(self.cards()['acme-local']['local']['status'], 'installed')
         self.assertEqual(self.cards()['acme-local']['local']['agents'], [])
         self.assertTrue(self.cards()['acme-local']['can_rate'])
@@ -425,6 +462,31 @@ class TeamTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertTrue(closed.is_set())
         self.assertEqual(dashboard.team_queue_status()['items'][0]['status'], 'done')
+
+    def test_program_install_waits_for_skill_queue(self):
+        self.configure()
+        self.publish(('acme-local',))
+        entered, release, applied = threading.Event(), threading.Event(), threading.Event()
+        install = team.install
+        def delayed(home, key):
+            entered.set()
+            self.assertTrue(release.wait(10))
+            return install(home, key)
+        def apply(*args):
+            applied.set()
+            return {'available': False, 'current': 'new', 'latest': 'new'}
+        self.b.program_review = {'target': 'new', 'available': True, 'temporary': ''}
+        with patch.object(team, 'install', side_effect=delayed), patch.object(self_update, 'apply', side_effect=apply):
+            self.enqueue()
+            try:
+                self.assertTrue(entered.wait(2))
+                self.b.start_program('apply', target='new')
+                self.assertFalse(applied.wait(.1))
+            finally:
+                release.set()
+            self.assertEqual(self.wait_queue()[0]['status'], 'done')
+            self.assertTrue(applied.wait(5))
+            self.b.program_thread.join(5)
 
     def test_server_close_does_not_start_waiting_items(self):
         self.configure()
@@ -907,7 +969,8 @@ class TeamTests(unittest.TestCase):
         self.configure()
         path = self.home / '.skill-pilot/team.json'
         original = path.read_bytes()
-        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        if os.name != "nt":
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
         self.ok(self.a, '/api/settings/llm', {'provider': 'example', 'base_url': 'https://example.invalid', 'model': 'example'})
         self.assertEqual(path.read_bytes(), original)
         self.ok(self.a, '/api/team/settings', {'url': self.url})
@@ -929,7 +992,8 @@ class TeamTests(unittest.TestCase):
             saved = json.loads(original)
             self.assertEqual(set(saved), {'url', 'key'})
             self.assertRegex(saved['key'], r'^[A-Za-z0-9_-]+$')
-            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            if os.name != "nt":
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             self.assertEqual(len(self.hub.store.members()), 3)
             for body in ({'url': self.url}, {'url': self.url, 'name': '其他示例名字', 'key': ''},
                          {'url': self.url, 'name': ['忽略已连接用户的名字']}):
@@ -969,7 +1033,8 @@ class TeamTests(unittest.TestCase):
                 saved = team.settings(self.home)
                 self.assertEqual(saved['url'], self.url)
                 self.assertRegex(saved['key'], r'^[A-Za-z0-9_-]+$')
-                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                if os.name != "nt":
+                    self.assertEqual(path.stat().st_mode & 0o777, 0o600)
                 self.assertEqual(self.ok(self.a, '/api/team')['member'], connected['member'])
                 self.assertNotIn(saved['key'], json.dumps(connected))
 
@@ -1156,6 +1221,7 @@ class TeamTests(unittest.TestCase):
                 pass
 
             def do_GET(self):
+                self.rfile.read(int(self.headers.get('Content-Length', '0')))
                 status, body, headers = response(self.path, self.headers)
                 body = body if isinstance(body, bytes) else json.dumps(body).encode()
                 self.send_response(status)

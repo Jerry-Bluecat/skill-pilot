@@ -4,9 +4,11 @@
 
 ## 安装
 
-当前支持 macOS 本地桌面。需要 Python 3.11.4 或更高版本，以及可用的 Git；飞书技能更新另外需要 Node.js 和 npm。Python 最低版本用于支持下载文件的安全解包，见 [Python 官方说明](https://docs.python.org/3.11/library/tarfile.html#extraction-filters)；飞书工具的依赖与账号配置见 [飞书官方安装说明](https://github.com/larksuite/cli#installation--quick-start)。
+当前支持 macOS 和 Windows 本地桌面。macOS 需要 Python 3.11.4 或更高版本，Windows 需要 Python 3.12 或更高版本；两者都需要可用的 Git。macOS 飞书技能更新另外需要 Node.js 和 npm，Windows 不自动升级飞书 CLI。Python 最低版本用于支持下载文件的安全解包，见 [Python 官方说明](https://docs.python.org/3.11/library/tarfile.html#extraction-filters)；飞书工具的依赖与账号配置见 [飞书官方安装说明](https://github.com/larksuite/cli#installation--quick-start)。
 
-从 GitHub 获取源码后，在项目文件夹运行：
+Windows 用户从 GitHub 获取或解压完整源码后，在项目文件夹运行 `python -X utf8 -B scripts/install.py`，再从开始菜单打开 **Skill Pilot**。首次整理前需开启 Windows 开发者模式。Windows 安装与后续看板升级见 [Windows 说明](WINDOWS.md)。
+
+macOS 用户从 GitHub 获取源码后，在项目文件夹运行：
 
 ```bash
 git clone https://github.com/Simonlau4/skill-pilot.git
