@@ -513,7 +513,7 @@ def _files(root):
 def _candidates(home, registry, member, cards):
     shared = _owned(cards, member['id'])
     result = {}
-    for row in sharing.export_config(home)['skills']:
+    for row in sharing.export_config(home, translated_description=True)['skills']:
         name = row['name']
         skill = registry['skills'][name]
         origin = _origin(skill)

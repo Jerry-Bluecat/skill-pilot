@@ -162,6 +162,42 @@ class TeamTests(unittest.TestCase):
                 github, 'api', side_effect=AssertionError('fallback must not require the GitHub CLI')):
             yield
 
+    def test_team_descriptions_use_translation_without_changing_files_or_config_export(self):
+        self.configure()
+        before = self.library(self.home)
+        self.publish(('acme-local', 'acme-main'))
+        original = team._owned(team._fetch(self.home)[2], self.first['id'])
+        translated = '中文完整说明\n保留产品名 Acme。'
+        groups = {'groups': [{'name': '示例分组', 'skills': {
+            name: {'title': '示例技能', 'summary': '示例用途', 'description': translated}
+            for name in ('acme-local', 'acme-main')}}]}
+        (self.home / '.skill-pilot/labels.json').write_text(json.dumps(groups))
+        candidates = {r['name']: r for r in team.listing_candidates(self.home)['skills']}
+        self.assertEqual(candidates['acme-local']['description'], translated)
+        preview = self.publish(('acme-local', 'acme-main'))
+        descriptions = {r['name']: r['description'] for r in preview['listings']}
+        self.assertEqual(candidates['acme-base']['description'], 'Acme 示例说明')  # No cached translation.
+        cards = self.cards()
+        published = team._owned(team._fetch(self.home)[2], self.first['id'])
+        for name in ('acme-local', 'acme-main'):
+            self.assertEqual(descriptions[name], translated)
+            self.assertEqual(cards[name]['description'], translated)
+            self.assertEqual(published[name]['source'], original[name]['source'])
+        self.assertTrue(all(r['description'] == 'Acme 示例说明' for r in sharing.export_config(self.home)['skills']))
+        self.assertEqual(self.library(self.home), before)
+
+    def test_team_translation_uses_existing_text_limits_and_empty_fallback(self):
+        self.configure()
+        groups = {'groups': [{'name': '示例分组', 'skills': {
+            'acme-local': {'title': '示例技能', 'summary': '示例用途',
+                           'description': '中\t文\x00\u200b\r\n' + '字' * 1600},
+            'acme-main': {'title': '示例技能', 'summary': '示例用途', 'description': '  '}}}]}
+        (self.home / '.skill-pilot/labels.json').write_text(json.dumps(groups))
+        preview = self.publish(('acme-local', 'acme-main'))
+        descriptions = {r['name']: r['description'] for r in preview['listings']}
+        self.assertEqual(descriptions['acme-local'], ('中 文\n' + '字' * 1600)[:1500])
+        self.assertEqual(descriptions['acme-main'], 'Acme 示例说明')
+
     def test_two_users_publish_install_files_and_github_with_dependencies_and_undo(self):
         self.configure()
         path = self.home / '.skill-pilot/store/acme-local'

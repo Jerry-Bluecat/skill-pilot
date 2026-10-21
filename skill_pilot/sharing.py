@@ -30,13 +30,14 @@ INSTRUCTIONS = [
 ]
 
 
-def export_config(home=None, agent=None):
+def export_config(home=None, agent=None, *, translated_description=False):
     home, registry, agents = operations.load(home)
     if agent is not None and agent not in agents:
         raise ValueError('请选择已经接入的 agent。')
     selected_agents = [agent] if agent else agents
     skills = registry['skills']
-    display = {name: {'title': label['title'], 'summary': label['summary'], 'group': group['name']}
+    display = {name: {'title': label['title'], 'summary': label['summary'], 'group': group['name'],
+                      'description': label.get('description', '')}
                for group in labels.read(home) for name, label in group['skills'].items()}
     selected = {n for n, s in skills.items() if set(s['assigned_agents']) & set(selected_agents)}
     pending = list(selected)
@@ -74,6 +75,10 @@ def export_config(home=None, agent=None):
             description = metadata((path / 'SKILL.md').read_text()).get('description', '')
         except (OSError, UnicodeError):
             description = ''
+        if translated_description:
+            # Team listings use the same display translation as the local library.
+            # Portable config exports still carry the original description.
+            description = display.get(name, {}).get('description', '').strip() or description
         details = {**display.get(name, {}), 'description': description}
         for field, limit in (('title', 40), ('summary', 120), ('group', 20), ('description', 1500)):
             value = details.get(field, '').replace('\t', ' ')
