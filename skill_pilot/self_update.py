@@ -17,7 +17,7 @@ from .store import PROJECT, guard, write_allowed
 SOURCE = 'https://github.com/Simonlau4/skill-pilot.git'
 BRANCH = 'main'
 RECORD = '.skill-pilot-install.json'
-BUNDLE_DIRS = ('skill_pilot', 'scripts', 'assets', 'docs', 'skill', 'tests')
+BUNDLE_DIRS = ('skill_pilot', 'scripts', 'assets', 'docs', 'skill', 'tests', '.github')
 
 
 def git(project, *arguments, **options):

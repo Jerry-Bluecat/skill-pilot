@@ -62,12 +62,9 @@ def run(json_output=False):
                 lock.seek(0)
                 lock.truncate()
                 return
-            names = ('token', 'inventory', 'install_reviews', 'team_upload_reviews', 'team_import_reviews',
-                     'update_reviews', 'labels_progress', 'program_review', 'program_progress')
-            state = {name: getattr(server, name) for name in names}
+            state = module.runtime.snapshot(server)
             state.update(pages=sorted(server.pages), socket_fd=server.socket.dup().detach())
             # Transfer temporary downloads to the new server instead of deleting them.
-            server.team_import_reviews = {}
             server.program_review = None
             server.server_close()
             previous = {name: value for name, value in sys.modules.items()

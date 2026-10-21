@@ -52,6 +52,7 @@ $link.Save()
                             env=env, capture_output=True, timeout=20,
                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     if result.returncode:
-        raise ValueError('开始菜单入口没能更新，请检查目录权限。')
+        raise ValueError('开始菜单入口没能更新，请检查目录权限。') from subprocess.CalledProcessError(
+            result.returncode, ['powershell.exe'], stderr=result.stderr)
     from .self_update import record_installation
     record_installation(project)

@@ -126,6 +126,7 @@ class TeamExternalDisableTests(unittest.TestCase):
     configure = test_team.TeamTests.configure
     publish = test_team.TeamTests.publish
     local_github = test_team.TeamTests.local_github
+    wait_queue = test_team.TeamTests.wait_queue
 
     def test_team_files_and_github_install_with_unrelated_user_disable_and_undo(self):
         self.configure()
@@ -147,15 +148,24 @@ class TeamExternalDisableTests(unittest.TestCase):
                           ('.codex/skills', '.claude/skills', '.codex/config.toml', '.skill-pilot/registry.json')}
                 card = next(c for c in self.ok(server, '/api/team/catalog')['cards'] if c['name'] == name)
                 with self.local_github():
-                    plan = self.ok(server, '/api/team/install/preview', {'key': card['key'], 'agents': ['codex', 'claude']})
-                result = self.ok(server, '/api/team/install/apply', {'review': plan['review']})
+                    queued = self.ok(server, '/api/team/queue', {'key': card['key']})['items'][-1]
+                    result = next(item for item in self.wait_queue(server) if item['id'] == queued['id'])
+                self.assertEqual(result['status'], 'done', result)
+                registry = operations.load(recipient)[1]
+                for installed in result['installed']:
+                    self.assertEqual(registry['skills'][installed]['assigned_agents'], [])
+                changes = [{'skill': name, 'agent': agent, 'enabled': True} for agent in ('codex', 'claude')]
+                plan = operations.preview_assign(changes, recipient, recheck=True)
+                enabled = operations.apply_assign(changes, plan['revision'], True, recipient, recheck=True)
                 visible = visibility(recipient)
                 self.assertIn(name, visible['codex']['available'])
                 self.assertIn(name, visible['claude']['available'])
                 self.assertNotIn('legacy', visible['codex']['available'])
                 self.assertIn('legacy', visible['claude']['available'])
                 self.assertEqual(config_path.read_bytes(), config)
-                self.ok(server, '/api/undo', {'id': result['id'], 'confirmed': True,
+                self.ok(server, '/api/undo', {'id': enabled['id'], 'confirmed': True,
+                        'revision': operations.revision(recipient, ['codex', 'claude'])})
+                self.ok(server, '/api/undo', {'id': result['operation'], 'confirmed': True,
                         'revision': operations.revision(recipient, ['codex', 'claude'])})
                 self.assertEqual({p: store.physical_state(recipient / p) for p in before}, before)
 

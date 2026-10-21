@@ -24,10 +24,11 @@ class WindowsUpdateTests(unittest.TestCase):
         cls.root = Path(tempfile.mkdtemp(prefix='Skill Pilot Windows tests ')).resolve()
         cls.official = cls.root / 'Official Source'
         cls.official.mkdir()
-        for name in ('skill_pilot', 'scripts', 'assets', 'docs', 'skill'):
-            shutil.copytree(store.PROJECT / name, cls.official / name,
-                            ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
-        for name in ('README.md', 'WINDOWS.md', '.gitignore', 'skill-pilot'):
+        for name in self_update.BUNDLE_DIRS:
+            if name != 'tests' and (store.PROJECT / name).is_dir():
+                shutil.copytree(store.PROJECT / name, cls.official / name,
+                                ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+        for name in ('README.md', 'WINDOWS.md', '.gitignore', '.gitattributes', 'skill-pilot'):
             shutil.copy2(store.PROJECT / name, cls.official / name)
         git(cls.official, 'init', '-q', '-b', 'main')
         cls.commit('baseline')
@@ -43,7 +44,7 @@ class WindowsUpdateTests(unittest.TestCase):
         git(cls.official, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', message)
 
     def setUp(self):
-        self.area = self.root / self._testMethodName
+        self.area = Path(tempfile.mkdtemp(prefix='case ', dir=self.root))
         self.home = self.area / 'User With Spaces 中文'
         self.home.mkdir(parents=True)
         self.project = self.area / 'Installed Program'
@@ -65,11 +66,18 @@ class WindowsUpdateTests(unittest.TestCase):
         self.addCleanup(lambda: rmtree(review['temporary'], ignore_errors=True) if review.get('temporary') else None)
         return review
 
+    def install_entries(self):
+        try:
+            windows_install.install(self.project, self.home)
+        except ValueError as error:
+            detail = getattr(error.__cause__, 'stderr', b'') or b''
+            self.fail(str(error) + '\n' + detail.decode('utf-8', 'replace'))
+
     def test_two_upgrades_preserve_compatibility_entries_and_user_data(self):
         sentinel = self.home / '.skill-pilot/settings.json'
         sentinel.parent.mkdir()
         sentinel.write_text('{"test":"leave intact"}')
-        windows_install.install(self.project, self.home)
+        self.install_entries()
         for label in ('release one', 'release two'):
             review = self.update(label)
             self.assertTrue(review['available'])
@@ -82,7 +90,7 @@ class WindowsUpdateTests(unittest.TestCase):
             self.assertEqual(sentinel.read_text(), '{"test":"leave intact"}')
 
     def test_failed_install_restores_program_and_entry(self):
-        windows_install.install(self.project, self.home)
+        self.install_entries()
         before = self_update.installed(self.project)
         cli = windows_install.entries(self.home)[0]
         entry = cli.read_bytes()
@@ -130,8 +138,18 @@ class WindowsUpdateTests(unittest.TestCase):
     def test_refresh_preserves_url_token_and_loads_new_python(self):
         log = self.area / 'process.log'
         errors = self.area / 'errors.log'
-        code = ('import webbrowser; webbrowser.open=lambda *a,**k: True; '
-                'from skill_pilot.web.server import run; run(True)')
+        code = '''import webbrowser
+webbrowser.open=lambda *a,**k: True
+from skill_pilot.web import server
+original = server.Dashboard.__init__
+def initialize(self, inventory, resume=None):
+    original(self, inventory, resume)
+    if resume is None:
+        self.team_queue = [{'id':'retained-job', 'key':'files:example', 'name':'example',
+                            'status':'done', 'message':'installed', 'installed':['example'], 'reuse':[]}]
+server.Dashboard.__init__ = initialize
+server.run(True)
+'''
         env = {**os.environ, 'SKILL_PILOT_HOME': str(self.home), 'SKILL_PILOT_READ_ONLY': '1'}
         with log.open('w', encoding='utf-8') as output, errors.open('w', encoding='utf-8') as error:
             process = subprocess.Popen([sys.executable, '-X', 'utf8', '-B', '-u', '-c', code],
@@ -153,6 +171,7 @@ class WindowsUpdateTests(unittest.TestCase):
             with urllib.request.urlopen(req, timeout=2) as response:
                 return json.load(response)
         before = request('/api/status')
+        queue = request('/api/team/queue')
         request('/api/heartbeat?page=windows-test', {})
         path = self.project / 'skill_pilot/web/server.py'
         content = path.read_text(encoding='utf-8')
@@ -173,7 +192,22 @@ class WindowsUpdateTests(unittest.TestCase):
             self.fail('refresh did not load new Python: ' + errors.read_text(encoding='utf-8'))
         self.assertEqual(before['pid'], after['pid'])
         self.assertNotEqual(before['version'], after['version'])
+        self.assertEqual(request('/api/team/queue'), queue)
         self.assertTrue(request('/api/heartbeat?page=windows-test', {})['ok'])
+        previous = after['version']
+        path.write_text(path.read_text(encoding='utf-8') + '\n# second program refresh\n', encoding='utf-8')
+        self.assertTrue(request('/api/runtime/refresh', {})['changed'])
+        for _ in range(200):
+            self.assertIsNone(process.poll(), errors.read_text(encoding='utf-8'))
+            try:
+                if request('/api/status')['version'] != previous:
+                    break
+            except OSError:
+                pass
+            time.sleep(.05)
+        else:
+            self.fail('second refresh did not finish: ' + errors.read_text(encoding='utf-8'))
+        self.assertEqual(request('/api/team/queue'), queue)
         process.terminate()
         process.wait(timeout=10)
 
