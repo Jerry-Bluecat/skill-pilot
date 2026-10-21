@@ -1,3 +1,4 @@
+from .platform_support import rmtree
 import argparse
 import json
 import os
@@ -306,7 +307,7 @@ def main():
             fail(error)
         finally:
             if review and not keep_review:
-                shutil.rmtree(review['temporary'], ignore_errors=True)
+                rmtree(review['temporary'], ignore_errors=True)
         return
     if args.command in {'status', 'list', 'assign', 'unassign', 'absorb', 'install', 'log', 'undo'}:
         try:
@@ -336,7 +337,7 @@ def main():
                         for conflict in data['conflicts']:
                             conflict['comparison'] = compare_files(Path(conflict['existing']), Path(conflict['incoming']))
                 finally:
-                    shutil.rmtree(review['temporary'])
+                    rmtree(review['temporary'])
             elif args.command == 'log':
                 data = operations.history()
             else:

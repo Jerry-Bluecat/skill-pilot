@@ -1,6 +1,7 @@
+from ..platform_support import rmtree
 """Loopback dashboard; every migration write requires an explicit confirmation."""
 import difflib
-import fcntl
+from ..platform_support import fcntl, user_home, user_id, check_directory_links
 import hashlib
 import json
 import os
@@ -195,9 +196,10 @@ class Dashboard(ThreadingHTTPServer):
             time.sleep(.05)
 
     def watch(self):
-        while time.monotonic() - self.last_heartbeat < (OPEN_PAGE_TIMEOUT if self.pages else HEARTBEAT_TIMEOUT) or self.background_busy() or self.reload_pending:
+        while not self.closing and (time.monotonic() - self.last_heartbeat < (OPEN_PAGE_TIMEOUT if self.pages else HEARTBEAT_TIMEOUT) or self.background_busy() or self.reload_pending):
             time.sleep(0.1)
-        self.shutdown()
+        if not self.closing:
+            self.shutdown()
 
     def agents_view(self):
         with self.agents_lock:
@@ -508,7 +510,7 @@ class Handler(BaseHTTPRequestHandler):
                     if review is None or not review['running']:
                         # A long-lived dashboard would otherwise keep every earlier check's downloads.
                         for old in self.server.update_reviews.values():
-                            shutil.rmtree(old['temporary'], ignore_errors=True)
+                            rmtree(old['temporary'], ignore_errors=True)
                         self.server.update_reviews.clear()
                         review = updates.create(self.server.home)
                         self.server.update_reviews[review['id']] = review
@@ -671,7 +673,7 @@ def preview_allowed(home):
 
 def compare_files(left, right):
     def files(root):
-        return {str(p.relative_to(root)): p for p in root.rglob("*") if p.is_file()
+        return {p.relative_to(root).as_posix(): p for p in root.rglob("*") if p.is_file()
                 and not any(part in SKIP_CONTENT for part in p.relative_to(root).parts)}
     one, two = files(left), files(right)
     result = [f"默认选择：{left}\n另一份：{right}\n"]
@@ -690,7 +692,7 @@ def compare_files(left, right):
 
 def lock_path():
     identity = hashlib.sha256(str(target_home()).encode()).hexdigest()[:16]
-    return Path(tempfile.gettempdir()) / f"skill-pilot-{os.getuid()}-{identity}.lock"
+    return Path(tempfile.gettempdir()) / f"skill-pilot-{user_id()}-{identity}.lock"
 
 
 def open_existing(lock):
@@ -714,10 +716,14 @@ def open_existing(lock):
 
 
 def run(json_output=False):
+    if os.name == 'nt':
+        from .windows_runtime import run as windows_run
+        return windows_run(json_output)
     resume = runtime.resume_state()
-    fd = resume['lock_fd'] if resume else os.open(lock_path(), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    fd = resume['lock_fd'] if resume else os.open(lock_path(), os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
     with os.fdopen(fd, "r+") as lock:
-        os.fchmod(lock.fileno(), 0o600)
+        if os.name != "nt":
+            os.fchmod(lock.fileno(), 0o600)
         if not resume:
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -750,9 +756,9 @@ def run(json_output=False):
             server.server_close()
             import shutil
             for review in server.install_reviews.values():
-                shutil.rmtree(review['temporary'], ignore_errors=True)
+                rmtree(review['temporary'], ignore_errors=True)
             for review in server.update_reviews.values():
-                shutil.rmtree(review['temporary'], ignore_errors=True)
+                rmtree(review['temporary'], ignore_errors=True)
             lock.seek(0)
             lock.truncate()
             # Do not unlink: another launcher could be holding the same inode.

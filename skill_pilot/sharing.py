@@ -1,3 +1,4 @@
+from .platform_support import rmtree
 """Portable source lists; importing only adds skills and assignments."""
 import json
 import re
@@ -269,4 +270,4 @@ def import_config(data, assigned=None, home=None, expected=None, member_name=Non
                                f'{prefix}：新装 {len(plan["install"])} 个，沿用本机 {len(plan["reuse"])} 个', mutate)
     finally:
         for review in reviews.values():
-            shutil.rmtree(review['temporary'], ignore_errors=True)
+            rmtree(review['temporary'], ignore_errors=True)

@@ -1,6 +1,7 @@
+from .platform_support import rmtree
 """M3 assignment, installation, absorption and reversible local operations."""
 import copy
-import fcntl
+from .platform_support import fcntl, user_home, user_id, check_directory_links
 import hashlib
 import json
 import re
@@ -12,7 +13,8 @@ from . import profiles
 from .scan import SKIP_CONTENT, content_digest, metadata, scan_root, tokens
 from .store import (PROJECT, _restore, backup, check_links, git_tree, guard, physical_state,
                     target_home, transaction, write_allowed, write_json)
-from .sync import assignment_entries, reconcile_assignments, visibility, cell_notes, notes
+from .sync import (assignment_entries, reconcile_assignments, visibility, cell_notes, notes,
+                   external_disable_rules, externally_disabled, effective_assignments)
 from .sources import github, normalize
 from . import labels, tags, normalization
 
@@ -91,7 +93,7 @@ def new_skills(home, agents):
             if path.resolve().is_relative_to(home / '.skill-pilot/store'):
                 continue
             check_links(path, home)
-            relative = str(path.relative_to(home))
+            relative = path.relative_to(home).as_posix()
             readers = [p['id'] for p in catalog if profiles.reads(p, relative) and skill['name'] in visible[p['id']]['available']]
             result.append({**skill, 'relative': relative, 'assigned_agents': readers,
                            'manual_only_for': [p['id'] for p in catalog if profiles.reads(p, relative) and profiles.manual_only(skill, p)]})
@@ -107,6 +109,10 @@ def table(home=None):
     home, registry, agents = load(home)
     catalog = profiles.by_id(home)
     cells = cell_notes(registry, home)
+    active = effective_assignments(registry, home)
+    for name, skill in registry['skills'].items():
+        for agent in set(skill['assigned_agents']) - set(active[name]):
+            cells[name][agent] = catalog[agent]['name'] + ' 中已由你停用，原设置保持不变'
     # 看板上的中文名和分组只用于显示；没写的技能显示原名。
     groups = labels.read(home)
     display = {name: label for group in groups for name, label in group['skills'].items()}
@@ -121,7 +127,7 @@ def table(home=None):
                      'description_zh': label['description'], 'tags': user_tags.get(name, []),
                      'description_tokens': listing_tokens(name, info), 'source': skill['source'],
                      'source_label': normalize(skill['source'])['label'],
-                     'assigned_agents': skill['assigned_agents'], 'requires': skill.get('requires', []),
+                     'assigned_agents': active[name], 'requires': skill.get('requires', []),
                      'update_watch': skill.get('update_watch') or 'all',
                      'local_modified': normalization.tree(path) != normalization.tree(home / '.skill-pilot/bases' / name),
                      'cell_notes': cells[name]})
@@ -212,9 +218,14 @@ def path_warnings(removed, home=None):
 
 
 def assignment_plan(registry, agents, changes, home=None):
+    home = target_home() if home is None else Path(home).resolve()
     catalog = profiles.by_id(home)
     managed = [catalog[a] for a in agents]
     result = copy.deepcopy(registry)
+    external = external_disable_rules(registry, home)
+    def require_enabled(name, agent):
+        if externally_disabled(name, result['skills'][name], agent, home, external, planned=True):
+            raise ValueError(f'{catalog[agent]["name"]} 中的「{name}」已由你停用，原设置已保留。请先在该助手中启用它，或取消给该助手安装。')
     explicit_removals, changed, reasons, auto_added = set(), set(), [], []
     for change in changes:
         name, agent, enabled = change['skill'], change['agent'], change['enabled']
@@ -222,6 +233,7 @@ def assignment_plan(registry, agents, changes, home=None):
             raise ValueError('请选择登记表里的技能和已接入的 agent。')
         assigned = set(result['skills'][name]['assigned_agents'])
         if enabled:
+            require_enabled(name, agent)
             assigned.add(agent)
             result['skills'][name].pop('withdrawn', None)
             result['skills'][name].pop('withdrawn_at', None)
@@ -237,6 +249,7 @@ def assignment_plan(registry, agents, changes, home=None):
                 raise ValueError(f'{name} 需要的 {dependency} 还没有收进仓库，请先安装。')
             if (dependency, agent) in explicit_removals:
                 continue
+            require_enabled(dependency, agent)
             assigned = result['skills'][dependency]['assigned_agents']
             if agent not in assigned:
                 assigned.append(agent); assigned.sort()
@@ -273,13 +286,14 @@ def assignment_plan(registry, agents, changes, home=None):
 def preview_assign(changes, home=None):
     home, registry, agents = load(home)
     plan = assignment_plan(registry, agents, changes, home)
+    active = effective_assignments(plan['registry'], home)
     cost = {n: listing_tokens(n, metadata((home / '.skill-pilot/store' / n / 'SKILL.md').read_text()))
             for n in registry['skills']}
     return {k: v for k, v in plan.items() if k != 'registry'} | {
-        'assignments': {n: s['assigned_agents'] for n, s in plan['registry']['skills'].items()},
+        'assignments': active,
         'cell_notes': cell_notes(plan['registry'], home, agents),
-        'after': {a: {'count': sum(a in s['assigned_agents'] for s in plan['registry']['skills'].values()),
-                      'description_tokens': sum(cost[n] for n, s in plan['registry']['skills'].items() if a in s['assigned_agents'])}
+        'after': {a: {'count': sum(a in assigned for assigned in active.values()),
+                      'description_tokens': sum(cost[n] for n, assigned in active.items() if a in assigned)}
                   for a in agents}}
 
 
@@ -291,9 +305,10 @@ def _snapshot(home, agents, checked, extra_paths=None):
 
 def _validate(home, registry, agents):
     current = visibility(home)
+    active = effective_assignments(registry, home)
     managed = set(registry['skills'])
     for agent in agents:
-        expected = {n for n, s in registry['skills'].items() if agent in s['assigned_agents']}
+        expected = {n for n, assigned in active.items() if agent in assigned}
         if set(current[agent]['available']) & managed != expected:
             raise ValueError(f'{profiles.by_id(home)[agent]["name"]} 的实际技能名单与勾选结果不一致，已经恢复原样。原有停用设置可能限制了这次分配。')
 
@@ -503,11 +518,11 @@ def update_local(name, folder, expected=None, home=None, confirmed=False):
     def mutate(current, checked):
         destination = checked(home / '.skill-pilot/store' / name)
         if destination.exists():
-            shutil.rmtree(destination)
+            rmtree(destination)
         shutil.copytree(incoming, destination, symlinks=True, ignore=shutil.ignore_patterns(*SKIP_CONTENT))
         base = checked(home / '.skill-pilot/bases' / name)
         if base.exists():
-            shutil.rmtree(base)
+            rmtree(base)
         base.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(destination, base, symlinks=True)
         current['skills'][name]['base_digest'] = content_digest(destination)
@@ -589,7 +604,7 @@ def set_source(name, repository, folder, confirmed=False, home=None):
         def mutate(current, checked):
             base = checked(home/'.skill-pilot/bases'/name)
             if base.exists():
-                shutil.rmtree(base)
+                rmtree(base)
             shutil.copytree(row['_base_path'],base,symlinks=True)
             skill = current['skills'][name]
             skill['source'] = {**source,'source_path':normalized['path'],'commit':row['base_commit'],
@@ -651,7 +666,7 @@ def undo(operation_id, expected=None, home=None):
             if name in before['skills']:
                 directory = checked(home / '.skill-pilot/store' / name)
                 if directory.exists():
-                    shutil.rmtree(directory)
+                    rmtree(directory)
                 extract_prefix('.skill-pilot/store/' + name)
         if not later:
             # Exact root/config/base restoration, keeping the new reversal commit.
@@ -682,7 +697,7 @@ def undo(operation_id, expected=None, home=None):
                     # baseline behind when this skill's content is reverted.
                     base = checked(home / '.skill-pilot/bases' / name)
                     if base.exists():
-                        shutil.rmtree(base)
+                        rmtree(base)
                     extract_prefix('.skill-pilot/bases/' + name)
                     old_entries = current['skills'][name].get('entries', [])
                     current['skills'][name] = copy.deepcopy(before['skills'][name])
@@ -694,7 +709,7 @@ def undo(operation_id, expected=None, home=None):
                             path.unlink()
                     base = checked(home / '.skill-pilot/bases' / name)
                     if base.exists():
-                        shutil.rmtree(base)
+                        rmtree(base)
                     del current['skills'][name]
             reconcile_assignments(current, home, checked, [n for n in names if n in current['skills']],
                                   {n: before['skills'][n].get('entries', []) for n in names if n in before['skills']})

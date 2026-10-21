@@ -166,7 +166,8 @@ class TeamTests(unittest.TestCase):
         destination = self.other / '.skill-pilot/store/acme-local'
         self.assertFalse((destination / '.env').exists())
         self.assertEqual((destination / 'example.bin').read_bytes(), b'\x00\xff\x01')
-        self.assertTrue((destination / 'example.sh').stat().st_mode & 0o111)
+        if os.name != 'nt':
+            self.assertTrue((destination / 'example.sh').stat().st_mode & 0o111)
         self.assertEqual(self.cards()['acme-local']['local']['status'], 'installed')
         self.assertTrue(self.cards()['acme-local']['can_rate'])
         with tarfile.open(self.other / '.skill-pilot/backups' / installed['backup_id'] / 'files.tar') as archive:
@@ -247,13 +248,19 @@ class TeamTests(unittest.TestCase):
         plan = self.install(apply=False)
         saved = self.b.team_import_reviews[plan['review']]
         path = Path(saved['items'][0]['path']) / 'SKILL.md'
-        path.chmod(0o755)
+        if os.name == "nt":
+            path.write_text(path.read_text() + "\nchanged after preview")
+        else:
+            path.chmod(0o755)
         before = self.library(self.other)
         self.assertEqual(self.request(self.b, '/api/team/install/apply', {'review': plan['review']})[0], 409)
         self.assertEqual(self.library(self.other), before)
         plan = self.install(apply=False)
         local = self.other / '.skill-pilot/store/acme-other/SKILL.md'
-        local.chmod(0o755)
+        if os.name == "nt":
+            local.write_text(local.read_text() + "\nchanged after preview")
+        else:
+            local.chmod(0o755)
         changed = self.library(self.other)
         status, result = self.request(self.b, '/api/team/install/apply', {'review': plan['review'], 'revision': operations.table(self.other)['revision']})
         self.assertEqual(status, 409)
@@ -532,7 +539,8 @@ class TeamTests(unittest.TestCase):
         self.configure()
         path = self.home / '.skill-pilot/team.json'
         original = path.read_bytes()
-        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        if os.name != "nt":
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
         self.ok(self.a, '/api/settings/llm', {'provider': 'example', 'base_url': 'https://example.invalid', 'model': 'example'})
         self.assertEqual(path.read_bytes(), original)
         self.ok(self.a, '/api/team/settings', {'url': self.url})
@@ -554,7 +562,8 @@ class TeamTests(unittest.TestCase):
             saved = json.loads(original)
             self.assertEqual(set(saved), {'url', 'key'})
             self.assertRegex(saved['key'], r'^[A-Za-z0-9_-]+$')
-            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            if os.name != "nt":
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             self.assertEqual(len(self.hub.store.members()), 3)
             for body in ({'url': self.url}, {'url': self.url, 'name': '其他示例名字', 'key': ''},
                          {'url': self.url, 'name': ['忽略已连接用户的名字']}):
@@ -594,7 +603,8 @@ class TeamTests(unittest.TestCase):
                 saved = team.settings(self.home)
                 self.assertEqual(saved['url'], self.url)
                 self.assertRegex(saved['key'], r'^[A-Za-z0-9_-]+$')
-                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                if os.name != "nt":
+                    self.assertEqual(path.stat().st_mode & 0o777, 0o600)
                 self.assertEqual(self.ok(self.a, '/api/team')['member'], connected['member'])
                 self.assertNotIn(saved['key'], json.dumps(connected))
 
