@@ -490,7 +490,15 @@ def _run(home, registry, agents, expected, message, mutation, undo_of=None, extr
         try:
             names, content, result = mutation(registry, checked)
             agents = [p['id'] for p in profiles.managed(home)]
-            _validate(home, registry, agents, result.pop('_expected_visibility', None))
+            expected_visibility = result.pop('_expected_visibility', None)
+            if expected_visibility is None and not result.get('_agents_changed'):
+                # Unrelated external additions/removals are part of the starting
+                # state, not changes this operation is authorized to undo.
+                active = effective_assignments(registry, home)
+                expected_visibility = {a: sorted(
+                    (set(snapshot['before'][a]['available']) - set(names)) |
+                    {n for n in names if a in active.get(n, [])}) for a in agents}
+            _validate(home, registry, agents, expected_visibility)
             original_registry = result.pop('_registry_bytes', None)
             if original_registry is None:
                 write_json(home / '.skill-pilot/registry.json', registry, checked)
@@ -927,7 +935,9 @@ def undo(operation_id, expected=None, home=None):
             reconcile_assignments(current, home, checked, [n for n in names if n in current['skills']],
                                   {n: before['skills'][n].get('entries', []) for n in names if n in before['skills']})
         return names, [], {'_commit': github.git(store, 'rev-parse', 'HEAD'),
-                           **({'_expected_visibility': record['assignment_before']} if record.get('assignment_before') else {}),
+                           **({'_expected_visibility': {a: state['available'] for a, state in snapshot['before'].items()}}
+                              if not later else ({'_expected_visibility': record['assignment_before']}
+                              if record.get('assignment_before') else {})),
                            **({'_registry_bytes': before_bytes} if not later else {})}
     return _run(home, registry, agents, expected or revision(home, agents), '撤销：' + record['message'], mutate,
                 operation_id, extra_paths=record.get('extra_paths'))

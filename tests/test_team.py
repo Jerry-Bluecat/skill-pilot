@@ -112,6 +112,24 @@ class TeamTests(unittest.TestCase):
         for server, member in ((self.a, self.first), (self.b, self.second)):
             self.ok(server, '/api/team/settings', {'url': self.url, 'key': member['token']})
 
+    def test_team_install_preserves_existing_dsh_drift_and_can_be_undone(self):
+        self.configure()
+        self.publish(('acme-local',))
+        home = self.root / 'DSH user'
+        self.make_home(home, 'dsh', ('acme-other',))
+        self.registry(home, lambda skills: skills['acme-other'].update(assigned_agents=[]))
+        server = self.start(Dashboard({'home': str(home)}))
+        self.ok(server, '/api/team/settings', {'url': self.url, 'key': self.second['token']})
+        before = self.library(home)
+        entry = store.physical_state(home / '.dsh/skills')
+        key = self.cards()['acme-local']['key']
+        result = team.install(home, key)
+        self.assertIn('acme-local', result['installed'])
+        self.assertEqual(store.physical_state(home / '.dsh/skills'), entry)
+        self.assertEqual(operations.load(home)[1]['skills']['acme-local']['assigned_agents'], [])
+        operations.undo(result['id'], home=home)
+        self.assertEqual(self.library(home), before)
+
     def publish(self, names=('acme-main', 'acme-local'), notes=None):
         preview = self.ok(self.a, '/api/team/listings/preview', {'skills': [
             {'name': n, 'note': (notes or {}).get(n, '')} for n in names]})

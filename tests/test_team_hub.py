@@ -80,7 +80,7 @@ class TeamHubTests(unittest.TestCase):
         return self.request('/api/packages/' + self.first['id'] + '/' + name + suffix)
 
     def state(self):
-        return {str(p.relative_to(self.data)): p.read_bytes() for p in self.data.rglob('*.json')}
+        return {p.relative_to(self.data).as_posix(): p.read_bytes() for p in self.data.rglob('*.json')}
 
     def pack(self, **extra):
         return {'id': 'acme', 'title': 'Acme 技能包', 'skills': ['acme-one', 'acme-two'], **extra}
