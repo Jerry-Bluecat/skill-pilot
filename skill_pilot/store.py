@@ -1,3 +1,4 @@
+from .platform_support import copytree
 from .platform_support import readlink, rmtree, is_junction
 """Backed-up local migration and guarded, reversible writes."""
 from .platform_support import fcntl, user_home, user_id, check_directory_links
@@ -410,7 +411,7 @@ def apply(plan_id, home=None, agent_ids=None, choices=None, sources=None):
                 name, option = skill["name"], chosen[skill["name"]]
                 destination = checked(home / ".skill-pilot/store" / name)
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copytree(option["path"], destination, symlinks=True, ignore=shutil.ignore_patterns(*SKIP_CONTENT))
+                copytree(option["path"], destination, symlinks=True, ignore=shutil.ignore_patterns(*SKIP_CONTENT))
                 from . import normalization
                 processing = normalization.apply(destination)
                 check_links(destination, home)
@@ -422,7 +423,7 @@ def apply(plan_id, home=None, agent_ids=None, choices=None, sources=None):
                               {"source": "来源不明", "confidence": "未确认", "confirmed": False})
                 base = checked(home / ".skill-pilot/bases" / name)
                 base.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copytree(destination, base, symlinks=True)
+                copytree(destination, base, symlinks=True)
                 registry["skills"][name] = {"source": source, "base_digest": content_digest(destination),
                                             "requires": [], "assigned_agents": skill["assigned_agents"],
                                             "entries": skill["entries"], "installed_at": source.get("record", {}).get("installedAt", datetime.now(timezone.utc).isoformat()),

@@ -1,7 +1,9 @@
-from .platform_support import rmtree
+from .platform_support import copytree
+from .platform_support import rmtree, create_links
 """M4 read-only reviews, confirmed batches, and preview-only Codex merging."""
 import hashlib
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -163,6 +165,8 @@ def check(home=None, review=None, lock=None):
                         if name in packages:
                             row.update(_base_path=str(base), _upstream_path=packages[name]['path'], package=packages[name],
                                        tree_sha=git_tree(Path(packages[name]['path'])), has_update=True, status=result['lark']['message'])
+                            if os.name == 'nt':
+                                row.update(blocked_reason=lark.MANUAL_UPDATE_REASON, status='需手动升级飞书工具')
                     elif group == 'team':
                         if failure: raise ValueError(failure)
                         listing = listings.get((source['member'], source['name']))
@@ -339,15 +343,17 @@ def prepare_merge(review, name):
         seen.add(str(path)); destination = root / path
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(item['content']); destination.chmod(0o755 if item['executable'] else 0o644)
+    links = []
     for filename, (data, mode) in preserved.items():
         path = root / filename
         if filename in seen:
             raise ValueError('合并结果改变了非文本文件，文件没有改动。')
         path.parent.mkdir(parents=True, exist_ok=True)
         if mode == 0o120000:
-            path.symlink_to(data.decode())
+            links.append((path, data.decode()))
         else:
             path.write_bytes(data); path.chmod(0o755 if mode & 0o111 else 0o644)
+    create_links(links)
     normalization.apply(root)
     _validate_name(root, home / '.skill-pilot/store' / name)
     row['_merge'] = {'path': str(root), 'tree_sha': git_tree(root), 'explanation': merged['explanation']}
@@ -445,13 +451,13 @@ def _apply_group(review, names, choices, merge_ids, batch):
             incoming = Path(row['_merge']['path']) if row['_choice'] == 'merge' else Path(row['_upstream_path'])
             if row['_choice'] != 'keep':
                 destination = checked(home / '.skill-pilot/store' / name)
-                rmtree(destination); shutil.copytree(incoming, destination, symlinks=True)
+                rmtree(destination); copytree(incoming, destination, symlinks=True)
                 skill['normalization'] = row.get('normalization', normalization.apply(destination))
             base = checked(home / '.skill-pilot/bases' / name)
             if base.exists():
                 rmtree(base)
             base.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(row['_upstream_path'], base, symlinks=True)
+            copytree(row['_upstream_path'], base, symlinks=True)
             normalization.apply(base)
             skill['base_digest'] = operations.content_digest(base)
             skill['base_tree_sha'] = row['tree_sha']

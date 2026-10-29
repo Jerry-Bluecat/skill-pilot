@@ -1,3 +1,4 @@
+from .platform_support import copytree
 """Stage official application updates independently of the user's skills."""
 import hashlib
 import json
@@ -444,7 +445,7 @@ def apply(review, home, project=PROJECT):
             if entry.is_symlink() or any(p.is_symlink() for p in entry.parents if p.is_relative_to(home)):
                 raise ValueError('SP 启动入口指向了其他位置，请重新安装后再升级。')
             if entry.is_dir():
-                shutil.copytree(entry, backup / str(index), symlinks=True)
+                copytree(entry, backup / str(index), symlinks=True)
             elif entry.exists():
                 shutil.copy2(entry, backup / str(index))
         # Recheck after staging/backup: edits made while downloading remain intact.
@@ -492,7 +493,7 @@ def apply(review, home, project=PROJECT):
                         entry.unlink(missing_ok=True)
                     saved = backup / str(index)
                     if saved.is_dir():
-                        shutil.copytree(saved, entry, symlinks=True)
+                        copytree(saved, entry, symlinks=True)
                     elif saved.exists():
                         copy_file(saved, entry)
             except Exception as recovery:

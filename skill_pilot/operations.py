@@ -1,3 +1,4 @@
+from .platform_support import copytree
 from .platform_support import rmtree
 """M3 assignment, installation, absorption and reversible local operations."""
 import copy
@@ -630,11 +631,11 @@ def _put(home, registry, item, assigned, entries, checked, normalize_content=Tru
     destination = checked(home / '.skill-pilot/store' / name)
     if destination.exists():
         raise ValueError('仓库里已有这个名字的文件，请先核对两份内容。')
-    shutil.copytree(source, destination, symlinks=True, ignore=shutil.ignore_patterns(*SKIP_CONTENT))
+    copytree(source, destination, symlinks=True, ignore=shutil.ignore_patterns(*SKIP_CONTENT))
     processing = normalization.apply(destination) if normalize_content else {}
     base = checked(home / '.skill-pilot/bases' / name)
     checked(base.parent).mkdir(parents=True, exist_ok=True)
-    shutil.copytree(destination, base, symlinks=True)
+    copytree(destination, base, symlinks=True)
     registry['skills'][name] = {'source': item['source'], 'base_digest': content_digest(destination),
                               'requires': [], 'assigned_agents': sorted(set(assigned)), 'entries': entries,
                               'installed_at': datetime.now(timezone.utc).isoformat(), 'installation_evidence': '本次安装或收编',
@@ -724,12 +725,12 @@ def update_local(name, folder, expected=None, home=None, confirmed=False):
         destination = checked(home / '.skill-pilot/store' / name)
         if destination.exists():
             rmtree(destination)
-        shutil.copytree(incoming, destination, symlinks=True, ignore=shutil.ignore_patterns(*SKIP_CONTENT))
+        copytree(incoming, destination, symlinks=True, ignore=shutil.ignore_patterns(*SKIP_CONTENT))
         base = checked(home / '.skill-pilot/bases' / name)
         if base.exists():
             rmtree(base)
         base.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(destination, base, symlinks=True)
+        copytree(destination, base, symlinks=True)
         current['skills'][name]['base_digest'] = content_digest(destination)
         return [name], [name], {}
     return _run(home, registry, agents, expected or revision(home, agents), f'用本地文件更新了「{name}」', mutate)
@@ -812,7 +813,7 @@ def set_source(name, repository, folder, confirmed=False, home=None):
             base = checked(home/'.skill-pilot/bases'/name)
             if base.exists():
                 rmtree(base)
-            shutil.copytree(row['_base_path'],base,symlinks=True)
+            copytree(row['_base_path'],base,symlinks=True)
             skill = current['skills'][name]
             skill['source'] = {**source,'source_path':normalized['path'],'commit':row['base_commit'],
                                'tree_sha':row['base_tree_sha'],'confidence':'高','evidence':'指定来源后按完整历史目录重新校准',

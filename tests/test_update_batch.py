@@ -69,7 +69,7 @@ class UpdateBatchTests(unittest.TestCase):
             headers={'X-Skill-Pilot-Token': server.token, 'Origin': server.origin,
                      'Content-Type': 'application/json'})
         try:
-            with urllib.request.urlopen(request, timeout=3) as response:
+            with urllib.request.urlopen(request, timeout=15 if os.name == 'nt' else 3) as response:
                 return response.status, json.load(response)
         except urllib.error.HTTPError as error:
             return error.code, json.load(error)

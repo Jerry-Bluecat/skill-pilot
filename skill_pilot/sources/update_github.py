@@ -1,4 +1,4 @@
-from ..platform_support import rmtree
+from ..platform_support import rmtree, create_links
 """Pinned upstream trees and full-directory historical baseline calibration."""
 import difflib
 import hashlib
@@ -129,6 +129,7 @@ class Reader:
             raise ValueError('上游文件内容没有读完整，请稍后重试。')
         staging.mkdir()
         offset = 0
+        links = []
         for mode, sha, name in entries:
             end = result.stdout.index(b'\n', offset)
             header = result.stdout[offset:end].split()
@@ -139,9 +140,10 @@ class Reader:
             path = staging / name
             path.parent.mkdir(parents=True, exist_ok=True)
             if mode == '120000':
-                path.symlink_to(os.fsdecode(data))
+                links.append((path, os.fsdecode(data)))
             else:
                 path.write_bytes(data); path.chmod(0o755 if mode == '100755' else 0o644)
+        create_links(links)
         # Compare link text; installation checks boundaries before any home write.
         if (staging / 'SKILL.md').is_symlink() or not (staging / 'SKILL.md').is_file():
             raise ValueError('上游这一版没有完整的技能说明，请核对来源。')

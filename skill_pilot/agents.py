@@ -1,3 +1,4 @@
+from .platform_support import copytree
 from .platform_support import readlink
 """Repeatable assistant enrollment and departure using the operation transaction."""
 import copy
@@ -194,7 +195,7 @@ def join(requests, plan_id, expected=None, choices=None, home=None):
                 content.append(name)
             elif option['id'] != 'store':
                 remove(target, checked)
-                shutil.copytree(option['path'], checked(target), symlinks=True)
+                copytree(option['path'], checked(target), symlinks=True)
                 content.append(name)
             record = current_registry['skills'][name]
             record['assigned_agents'] = sorted(set(record['assigned_agents']) | set(skill['assigned_agents']))

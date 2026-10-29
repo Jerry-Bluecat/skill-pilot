@@ -34,6 +34,52 @@ def is_junction(path):
     return os.name == 'nt' and Path(path).is_junction()
 
 
+def create_links(links):
+    """Create staged links after files, resolving chains before Windows types them."""
+    pending = list(links)
+    while pending:
+        remaining = []
+        for path, target in pending:
+            destination = path.parent / target
+            if destination.exists():
+                path.symlink_to(str(Path(target)) if os.name == 'nt' else target,
+                                target_is_directory=destination.is_dir())
+            else:
+                remaining.append((path, target))
+        if len(remaining) == len(pending):
+            # Dangling links retain their text; the existing source-boundary
+            # validation still decides whether they may be installed.
+            for path, target in remaining:
+                path.symlink_to(str(Path(target)) if os.name == 'nt' else target)
+            break
+        pending = remaining
+
+
+def copytree(source, destination, **options):
+    """Preserve Windows directory-link types instead of copying them as files."""
+    import shutil
+    import stat
+    if os.name != 'nt' or not options.get('symlinks'):
+        return shutil.copytree(source, destination, **options)
+    source, destination = Path(source), Path(destination)
+    ignore = options.pop('ignore', None)
+    links = []
+    def skip_links(directory, names):
+        skipped = set(ignore(directory, names) if ignore else [])
+        for name in names:
+            path = Path(directory) / name
+            if name not in skipped and path.is_symlink():
+                links.append((path, destination / path.relative_to(source), readlink(path),
+                              bool(path.lstat().st_file_attributes & stat.FILE_ATTRIBUTE_DIRECTORY)))
+                skipped.add(name)
+        return skipped
+    result = shutil.copytree(source, destination, ignore=skip_links, **options)
+    for original, path, target, directory in links:
+        path.symlink_to(str(Path(target)), target_is_directory=directory)
+        shutil.copystat(original, path, follow_symlinks=False)
+    return result
+
+
 def user_home():
     if os.name == 'nt':
         return Path(os.environ['USERPROFILE']).resolve()

@@ -65,7 +65,7 @@ class JobTests(unittest.TestCase):
         action(registry)
         path.write_text(json.dumps(registry))
 
-    def request(self, path, body=None, extra=None, timeout=3):
+    def request(self, path, body=None, extra=None, timeout=15 if os.name == 'nt' else 3):
         headers = {'X-Skill-Pilot-Token': self.server.token, 'Origin': self.server.origin,
                    'Content-Type': 'application/json'}
         headers.update(extra or {})
@@ -86,7 +86,7 @@ class JobTests(unittest.TestCase):
         return self.ok('/api/jobs', {'kind': kind, 'confirmed': True, **parameters})['job']
 
     def wait_jobs(self):
-        deadline = time.monotonic() + 8
+        deadline = time.monotonic() + (30 if os.name == 'nt' else 8)
         while time.monotonic() < deadline:
             result = self.ok('/api/jobs')
             if all(i['status'] not in {'waiting', 'running'} for i in result['items']) and not self.server.jobs_busy():

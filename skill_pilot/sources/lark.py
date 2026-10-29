@@ -1,3 +1,4 @@
+from ..platform_support import copytree
 from ..platform_support import rmtree
 """CLI-only staged installation; official archives never run an installer."""
 import hashlib
@@ -20,6 +21,7 @@ from ..store import guard, target_home
 from .github import safe_skill
 
 CLI_PATHS = ['.local/lib/node_modules/@larksuite/cli', '.local/bin/lark-cli']
+MANUAL_UPDATE_REASON = 'Windows 版不自动升级飞书 CLI；请按本机飞书规则手动升级后，再检查技能版本。'
 
 
 def check(timeout=60, home=None):
@@ -85,7 +87,7 @@ def prepare(sources, temporary, version, deadline=None):
 def install_cli(home, version, checked):
     guard(home / '.skill-pilot', home)
     if os.name == 'nt':
-        raise ValueError('Windows 版不自动升级飞书 CLI；请按本机飞书规则手动升级后，再检查技能版本。')
+        raise ValueError(MANUAL_UPDATE_REASON)
     if not re.fullmatch(r'\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?', version):
         raise ValueError('飞书版本号不正确。')
     env = tool_environment(home)
@@ -115,7 +117,7 @@ def install_cli(home, version, checked):
         if target.exists():
             rmtree(target)
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(package, target, symlinks=True)
+        copytree(package, target, symlinks=True)
         entry = checked(home / CLI_PATHS[1])
         entry.parent.mkdir(parents=True, exist_ok=True)
         if entry.exists() or entry.is_symlink():
