@@ -55,6 +55,31 @@ def create_links(links):
         pending = remaining
 
 
+def copytree(source, destination, **options):
+    """Preserve Windows directory-link types instead of copying them as files."""
+    import shutil
+    import stat
+    if os.name != 'nt' or not options.get('symlinks'):
+        return shutil.copytree(source, destination, **options)
+    source, destination = Path(source), Path(destination)
+    ignore = options.pop('ignore', None)
+    links = []
+    def skip_links(directory, names):
+        skipped = set(ignore(directory, names) if ignore else [])
+        for name in names:
+            path = Path(directory) / name
+            if name not in skipped and path.is_symlink():
+                links.append((path, destination / path.relative_to(source), readlink(path),
+                              bool(path.lstat().st_file_attributes & stat.FILE_ATTRIBUTE_DIRECTORY)))
+                skipped.add(name)
+        return skipped
+    result = shutil.copytree(source, destination, ignore=skip_links, **options)
+    for original, path, target, directory in links:
+        path.symlink_to(str(Path(target)), target_is_directory=directory)
+        shutil.copystat(original, path, follow_symlinks=False)
+    return result
+
+
 def user_home():
     if os.name == 'nt':
         return Path(os.environ['USERPROFILE']).resolve()

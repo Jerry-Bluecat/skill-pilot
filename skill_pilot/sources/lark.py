@@ -1,3 +1,4 @@
+from ..platform_support import copytree
 from ..platform_support import rmtree
 """CLI-only staged installation; official archives never run an installer."""
 import hashlib
@@ -116,7 +117,7 @@ def install_cli(home, version, checked):
         if target.exists():
             rmtree(target)
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(package, target, symlinks=True)
+        copytree(package, target, symlinks=True)
         entry = checked(home / CLI_PATHS[1])
         entry.parent.mkdir(parents=True, exist_ok=True)
         if entry.exists() or entry.is_symlink():

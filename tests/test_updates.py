@@ -72,6 +72,13 @@ class UpdateTests(unittest.TestCase):
             self.assertEqual((target / name / 'value.txt').read_text(), 'linked data')
         self.assertEqual((target / 'c-file').read_text(), 'linked data')
         self.assertEqual(store.git_tree(target), store.git_tree(self.folder))
+        before = self.fingerprint()
+        result = updates.apply(self.check(), ['sample'], confirmed=True)
+        self.assertEqual((self.local() / 'a-chain/value.txt').read_text(), 'linked data')
+        self.assertEqual((self.local() / 'c-file').read_text(), 'linked data')
+        self.assertFalse(self.check()['skills'][0]['has_update'])
+        operations.undo(result['id'], home=self.home)
+        self.assertEqual(self.fingerprint(), before)
 
     def check(self):
         review = updates.check(self.home)

@@ -10,6 +10,28 @@ from skill_pilot import codex_config, store
 
 
 class PlatformTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'nt', 'Windows link types during copy')
+    def test_copy_keeps_directory_file_and_dangling_link_types(self):
+        import stat
+        import shutil
+        from skill_pilot.platform_support import copytree
+        with tempfile.TemporaryDirectory(prefix='copy links ') as directory:
+            root = Path(directory)
+            source, target = root / 'source with spaces', root / 'copied with spaces'
+            (source / 'zdata').mkdir(parents=True)
+            (source / 'zdata/value.txt').write_text('keep')
+            (source / 'b-dir').symlink_to('zdata', target_is_directory=True)
+            (source / 'a-chain').symlink_to('b-dir', target_is_directory=True)
+            (source / 'file').symlink_to(Path('zdata/value.txt'))
+            (source / 'dangling-dir').symlink_to('missing', target_is_directory=True)
+            (source / 'ignored').symlink_to('zdata', target_is_directory=True)
+            copytree(source, target, symlinks=True, ignore=shutil.ignore_patterns('ignored'))
+            self.assertEqual((target / 'a-chain/value.txt').read_text(), 'keep')
+            self.assertEqual((target / 'file').read_text(), 'keep')
+            self.assertTrue((target / 'dangling-dir').is_symlink())
+            self.assertTrue((target / 'dangling-dir').lstat().st_file_attributes & stat.FILE_ATTRIBUTE_DIRECTORY)
+            self.assertFalse((target / 'ignored').is_symlink())
+
     @unittest.skipUnless(os.name == 'nt', 'Windows junction migration')
     def test_junction_migration_and_restore_preserve_target_and_entry(self):
         import _winapi

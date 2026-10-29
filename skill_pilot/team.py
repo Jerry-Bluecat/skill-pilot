@@ -1,3 +1,4 @@
+from .platform_support import copytree
 """Dashboard backend for the authenticated team skill store."""
 import base64
 from .platform_support import rmtree
@@ -537,7 +538,7 @@ def install(home, key):
                     if found is None:
                         raise ValueError(name + ' 的来源里没有找到指定的技能，请联系上架的同事。')
                     github.safe_skill(Path(found['path']))
-                    shutil.copytree(found['path'], path, symlinks=True, ignore=shutil.ignore_patterns(*SKIP_CONTENT))
+                    copytree(found['path'], path, symlinks=True, ignore=shutil.ignore_patterns(*SKIP_CONTENT))
                     items[name] = {**found, 'path': str(path)}
                 finally:
                     rmtree(download['temporary'], ignore_errors=True)

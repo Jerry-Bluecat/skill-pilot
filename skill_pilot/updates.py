@@ -1,3 +1,4 @@
+from .platform_support import copytree
 from .platform_support import rmtree, create_links
 """M4 read-only reviews, confirmed batches, and preview-only Codex merging."""
 import hashlib
@@ -450,13 +451,13 @@ def _apply_group(review, names, choices, merge_ids, batch):
             incoming = Path(row['_merge']['path']) if row['_choice'] == 'merge' else Path(row['_upstream_path'])
             if row['_choice'] != 'keep':
                 destination = checked(home / '.skill-pilot/store' / name)
-                rmtree(destination); shutil.copytree(incoming, destination, symlinks=True)
+                rmtree(destination); copytree(incoming, destination, symlinks=True)
                 skill['normalization'] = row.get('normalization', normalization.apply(destination))
             base = checked(home / '.skill-pilot/bases' / name)
             if base.exists():
                 rmtree(base)
             base.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(row['_upstream_path'], base, symlinks=True)
+            copytree(row['_upstream_path'], base, symlinks=True)
             normalization.apply(base)
             skill['base_digest'] = operations.content_digest(base)
             skill['base_tree_sha'] = row['tree_sha']
