@@ -57,6 +57,22 @@ class UpdateTests(unittest.TestCase):
         github.git(self.repo, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@local',
                    '-c', 'commit.gpgsign=false', 'commit', '-qm', message)
 
+    def test_update_snapshot_keeps_forward_directory_links_and_chains(self):
+        from skill_pilot.sources.update_github import Reader
+        (self.folder / 'zdata').mkdir()
+        (self.folder / 'zdata/value.txt').write_text('linked data')
+        (self.folder / 'b-directory').symlink_to('zdata', target_is_directory=True)
+        (self.folder / 'a-chain').symlink_to('b-directory', target_is_directory=True)
+        (self.folder / 'c-file').symlink_to(Path('zdata/value.txt'))
+        self.commit('forward links')
+        reader = Reader(self.home.parent / 'link snapshot')
+        target = reader.snapshot(self.repo, github.git(self.repo, 'rev-parse', 'HEAD:skills/sample'))
+        for name in ('a-chain', 'b-directory'):
+            self.assertTrue((target / name).is_dir())
+            self.assertEqual((target / name / 'value.txt').read_text(), 'linked data')
+        self.assertEqual((target / 'c-file').read_text(), 'linked data')
+        self.assertEqual(store.git_tree(target), store.git_tree(self.folder))
+
     def check(self):
         review = updates.check(self.home)
         self.addCleanup(shutil.rmtree, review['temporary'], True)
@@ -384,6 +400,7 @@ class LarkTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'单独确认'):
                 updates.apply(review,['lark-doc'],confirmed=True)
             if os.name == 'nt':
+                self.assertIn('不自动升级飞书 CLI', review['skills'][0]['blocked_reason'])
                 with self.assertRaisesRegex(ValueError, '不自动升级飞书 CLI'):
                     updates.apply(review, ['lark-doc'], confirmed=True, confirm_lark=True)
                 self.assertEqual(before, {p: store.physical_state(home/p) for p in snapshot_paths})

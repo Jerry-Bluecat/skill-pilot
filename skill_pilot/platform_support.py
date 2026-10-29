@@ -34,6 +34,27 @@ def is_junction(path):
     return os.name == 'nt' and Path(path).is_junction()
 
 
+def create_links(links):
+    """Create staged links after files, resolving chains before Windows types them."""
+    pending = list(links)
+    while pending:
+        remaining = []
+        for path, target in pending:
+            destination = path.parent / target
+            if destination.exists():
+                path.symlink_to(str(Path(target)) if os.name == 'nt' else target,
+                                target_is_directory=destination.is_dir())
+            else:
+                remaining.append((path, target))
+        if len(remaining) == len(pending):
+            # Dangling links retain their text; the existing source-boundary
+            # validation still decides whether they may be installed.
+            for path, target in remaining:
+                path.symlink_to(str(Path(target)) if os.name == 'nt' else target)
+            break
+        pending = remaining
+
+
 def user_home():
     if os.name == 'nt':
         return Path(os.environ['USERPROFILE']).resolve()
