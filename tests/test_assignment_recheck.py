@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from tests import test_operations
-from skill_pilot import operations, store
+from skill_pilot import operations, store, profiles, scan
 from skill_pilot.sync import visibility
 
 
@@ -32,6 +32,17 @@ class AssignmentRecheckTests(unittest.TestCase):
         self.assertEqual(plan['conflicts'], [])
         self.assertEqual(plan['changes'], self.changes())
         self.assertEqual(store.physical_state(self.home), before)
+
+    def test_preview_does_not_probe_installed_apps_or_rehash_inventory(self):
+        before = self.fingerprint()
+        # revision() still hashes the full state through its imported digest;
+        # the inventory used for assignment must only read manifest metadata.
+        with patch.object(profiles, 'evidence', side_effect=AssertionError('unexpected app discovery')), \
+                patch.object(scan, 'content_digest', side_effect=AssertionError('repeated inventory hash')):
+            plan = self.preview(self.changes())
+        self.assertEqual(plan['conflicts'], [])
+        self.assertEqual(plan['changes'], self.changes())
+        self.assertEqual(self.fingerprint(), before)
 
     def test_unrelated_content_and_new_files_survive_save_and_undo(self):
         changes = self.changes()

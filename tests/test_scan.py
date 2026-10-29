@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from skill_pilot.scan import classify, conflict_groups, is_disabled, metadata, read_disabled, scan, scan_root, tokens
+from skill_pilot.scan import classify, conflict_groups, content_digest, is_disabled, metadata, read_disabled, scan, scan_root, tokens
 
 
 class InventoryTests(unittest.TestCase):
@@ -18,6 +18,18 @@ class InventoryTests(unittest.TestCase):
         path.mkdir(parents=True, exist_ok=True)
         (path / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {description}\n---\n{body}\n")
         return path
+
+    def test_content_digest_still_rejects_directory_and_file_link_cycles(self):
+        directory = self.home / 'directory-cycle'
+        directory.mkdir()
+        (directory / 'loop').symlink_to('.', target_is_directory=True)
+        with self.assertRaises((OSError, RuntimeError)):
+            content_digest(directory)
+        files = self.home / 'file-cycle'
+        files.mkdir()
+        (files / 'loop').symlink_to('loop')
+        with self.assertRaises((OSError, RuntimeError)):
+            content_digest(files)
 
     def test_real_path_shapes_are_classified(self):
         fixtures = {

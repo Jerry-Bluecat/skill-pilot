@@ -58,14 +58,14 @@ def validate(profile):
     return profile
 
 
-def all_profiles(home=None, applications=None):
+def all_profiles(home=None, applications=None, *, discover=True):
     local = state(home) if home is not None else {}
     custom = local.get('custom', [])
     # A previously enrolled agent keeps its saved roots and behavior.
     saved = set(local.get('onboarded', [])) | set(local.get('ignored', []))
     profiles = list(PROFILES) + [p for p in ADDITIONAL_PROFILES
                                 if p['id'] not in {c['id'] for c in custom} and
-                                (home is None or p['id'] in saved or evidence(p, home, applications))]
+                                (not discover or home is None or p['id'] in saved or evidence(p, home, applications))]
     for profile in custom:
         validate(profile)
         if profile['id'] in {p['id'] for p in profiles}:
@@ -76,7 +76,8 @@ def all_profiles(home=None, applications=None):
 
 
 def by_id(home=None):
-    return {p['id']: p for p in all_profiles(home)}
+    # Policy lookups need known rules, not a repeated scan of installed CLIs.
+    return {p['id']: p for p in all_profiles(home, discover=False)}
 
 
 def managed(home, agent_ids=None):
@@ -104,14 +105,14 @@ def reads(profile, entry):
 
 
 def readonly_roots(home=None):
-    return {r for p in all_profiles(home) for r, _ in p['readonly_roots']} | {
+    return {r for p in all_profiles(home, discover=False) for r, _ in p['readonly_roots']} | {
         r for r, category in CATALOG['classified_roots'] if category != 'ignored'}
 
 
 def exclusions(root, home=None):
     root = Path(root)
     result = []
-    for p in all_profiles(home):
+    for p in all_profiles(home, discover=False):
         for user in p['skill_roots']:
             if root.parts[-len(Path(user).parts):] != Path(user).parts:
                 continue
@@ -133,7 +134,7 @@ def config_paths(home, agent_ids=None):
 
 
 def disabled(home):
-    return {p['id']: adapter(p).read(home) for p in all_profiles(home) if p['disable']}
+    return {p['id']: adapter(p).read(home) for p in all_profiles(home, discover=False) if p['disable']}
 
 
 def manual_only(skill, profile):

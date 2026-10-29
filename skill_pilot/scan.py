@@ -113,19 +113,23 @@ def classify(path, home):
 def content_digest(directory):
     digest = hashlib.sha256()
 
-    def visit(path, relative, ancestors):
-        real = path.resolve()
-        if real in ancestors:
-            raise OSError("目录中的链接形成循环")
-        if path.is_dir():
+    def visit(path, relative, ancestors, entry=None):
+        item = entry if entry is not None else path
+        if item.is_dir():
+            real = path.resolve()
+            if real in ancestors:
+                raise OSError("目录中的链接形成循环")
             digest.update(("D\0" + relative + "\0").encode())
-            for child in sorted(path.iterdir()):
+            with os.scandir(path) as entries:
+                children = sorted(entries, key=lambda item: Path(item.name))
+            for child in children:
                 if child.name not in SKIP_CONTENT:
-                    visit(child, relative + "/" + child.name, ancestors | {real})
-        elif path.is_file():
+                    visit(Path(child.path), relative + "/" + child.name, ancestors | {real}, child)
+        elif item.is_file():
             digest.update(("F\0" + relative + "\0").encode())
             digest.update(hashlib.sha256(path.read_bytes()).digest())
-        elif path.is_symlink():
+        elif item.is_symlink():
+            path.resolve()  # Preserve rejection of circular link chains.
             digest.update(("L\0" + relative + "\0" + readlink(path)).encode())
 
     visit(directory, "", set())
@@ -161,7 +165,7 @@ def is_disabled(skill, disabled):
             str((Path(skill["path"]) / "SKILL.md").resolve()) in disabled["paths"])
 
 
-def scan_root(root, recursive=True, digest_cache=None, user_root=True, excluded=None):
+def scan_root(root, recursive=True, digest_cache=None, user_root=True, excluded=None, *, content=True):
     root = Path(root)
     skills, errors, unresolved = [], [], []
     digest_cache = {} if digest_cache is None else digest_cache
@@ -193,7 +197,7 @@ def scan_root(root, recursive=True, digest_cache=None, user_root=True, excluded=
                 valid = bool(info.get("name") and info.get("description"))
                 if not valid:
                     warning = "技能说明缺少可识别的名称或描述，未计入可见数量"
-                if real not in digest_cache:
+                if content and real not in digest_cache:
                     try:
                         digest_cache[real] = content_digest(path)
                     except OSError as error:
@@ -216,7 +220,7 @@ def scan_root(root, recursive=True, digest_cache=None, user_root=True, excluded=
                                "manual_only_for": [],
                                "description_chars": len(info.get("description", "")),
                                "description_tokens": tokens(name + " " + info.get("description", "")),
-                               "version": info.get("version"), "digest": digest_cache[real],
+                               "version": info.get("version"), "digest": digest_cache.get(real),
                                "name_mismatch": name != path.name, "warning": warning})
                 return
             if recursive or path == root:

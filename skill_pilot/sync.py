@@ -47,11 +47,11 @@ def reconcile(registry, home, guard):
     return changed
 
 
-def visibility(home, catalog=None):
+def visibility(home, catalog=None, *, content=True):
     """User skills only; no discovery, plugin execution or session startup."""
     from .scan import is_disabled, scan_root
     home = Path(home)
-    catalog = catalog if catalog is not None else profiles.all_profiles(home)
+    catalog = catalog if catalog is not None else profiles.all_profiles(home, discover=False)
     disabled = {p['id']: profiles.adapter(p).read(home) for p in catalog if p['disable']}
     for p in catalog:
         if disabled.get(p['id'], {}).get('error'):
@@ -62,7 +62,7 @@ def visibility(home, catalog=None):
         available, automatic, versions = {}, {}, {}
         for relative in profile["skill_roots"]:
             root = home / relative
-            inventory = scan_root(root, profile['nested'], cache, excluded=profiles.exclusions(root, home))
+            inventory = scan_root(root, profile['nested'], cache, excluded=profiles.exclusions(root, home), content=content)
             if inventory["errors"]:
                 raise ValueError("有技能目录没能完整读取，请解决后重新预览。")
             for skill in inventory["skills"]:
@@ -188,9 +188,13 @@ def reconcile_disabled(registry, home, checked):
 def cell_notes(registry, home, agent_ids=None):
     catalog = profiles.managed(home, agent_ids)
     result = {}
+    placements = {}
     for name, skill in registry['skills'].items():
         assigned = set(skill['assigned_agents'])
-        entries = assignment_entries(name, assigned, home, catalog)
+        key = tuple(sorted(assigned))
+        if key not in placements:
+            placements[key] = [Path(e).parent for e in assignment_entries(name, assigned, home, catalog)]
+        entries = [(root / name).as_posix() for root in placements[key]]
         result[name] = {p['id']: p['name'] + ' 里已自动停用' for p in catalog
                         if p['disable'] and p['id'] not in assigned and
                         any(profiles.reads(p, entry) for entry in entries)}

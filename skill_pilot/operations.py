@@ -50,13 +50,14 @@ def load(home=None):
     registry = json.loads(path.read_text())
     catalog = profiles.by_id(home)
     agents = [p['id'] for p in profiles.managed(home)]
+    protected = profiles.readonly_roots(home)
     for name, skill in registry['skills'].items():
         if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', name):
             raise ValueError('登记表中的技能名称不正确。')
         for entry in skill.get('entries', []):
             if not any(profiles.reads(catalog[agent], entry) for agent in agents):
                 raise ValueError('登记表中有不属于已接入 agent 的技能入口。')
-            if '..' in Path(entry).parts or any(Path(entry).is_relative_to(r) for r in profiles.readonly_roots(home)):
+            if '..' in Path(entry).parts or any(Path(entry).is_relative_to(r) for r in protected):
                 raise ValueError('登记表涉及只读目录，已停止操作。')
     confirmed, _ = curated_dependencies()
     for name, skill in registry['skills'].items():
@@ -329,7 +330,7 @@ def preview_assign(changes, home=None, recheck=False):
 def _recheck_assignment(changes, home, registry, agents):
     """Reapply only explicit intent to observed assignments, without adopting files."""
     start = revision(home, agents)
-    actual = visibility(home, profiles.managed(home, agents))
+    actual = visibility(home, profiles.managed(home, agents), content=False)
     before = {a: actual[a]['available'] for a in agents}
     live = copy.deepcopy(registry)
     for name, skill in live['skills'].items():
@@ -358,7 +359,18 @@ def _recheck_assignment(changes, home, registry, agents):
             conflict(change, str(error))
         plan = assignment_plan(live, agents, [], home)
     # Any external replacement of a selected entry needs a source decision.
-    foreign = {s['name'] for s in external_skills(home, agents, live)}
+    foreign = set()
+    catalog = profiles.managed(home, agents)
+    for root in sorted({r for p in catalog for r in p['skill_roots']}):
+        inventory = scan_root(home / root, profiles.root_nested(root, catalog),
+                              excluded=profiles.exclusions(home / root, home), content=False)
+        if inventory['errors']:
+            raise ValueError('有技能目录没有完整读出，请刷新后重新核对。')
+        for skill in inventory['skills']:
+            path = Path(skill['path'])
+            if (skill['valid'] and skill['name'] in plan['changed'] and not path.is_symlink()
+                    and not path.resolve().is_relative_to(home / '.skill-pilot/store')):
+                foreign.add(skill['name'])
     for name in plan['changed']:
         target = home / '.skill-pilot/store' / name
         info = metadata((target / 'SKILL.md').read_text()) if (target / 'SKILL.md').is_file() else {}
