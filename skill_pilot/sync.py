@@ -51,7 +51,7 @@ def visibility(home, catalog=None, *, content=True):
     """User skills only; no discovery, plugin execution or session startup."""
     from .scan import is_disabled, scan_root
     home = Path(home)
-    catalog = catalog if catalog is not None else profiles.all_profiles(home, discover=False)
+    catalog = catalog if catalog is not None else profiles.all_profiles(home)
     disabled = {p['id']: profiles.adapter(p).read(home) for p in catalog if p['disable']}
     for p in catalog:
         if disabled.get(p['id'], {}).get('error'):
@@ -95,7 +95,7 @@ def externally_disabled(name, skill, agent, home, rules, planned=False):
     from .scan import is_disabled
     if agent not in rules:
         return False
-    profile = profiles.by_id(home)[agent]
+    profile = profiles.by_id(home, discover=False)[agent]
     entries = list(skill.get('entries', []))
     if planned:
         entries += assignment_entries(name, sorted(set(skill['assigned_agents']) | {agent}), home)

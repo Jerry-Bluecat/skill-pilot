@@ -75,16 +75,16 @@ def all_profiles(home=None, applications=None, *, discover=True):
     return profiles
 
 
-def by_id(home=None):
-    # Policy lookups need known rules, not a repeated scan of installed CLIs.
-    return {p['id']: p for p in all_profiles(home, discover=False)}
+def by_id(home=None, *, discover=True):
+    # Policy callers can use known rules without probing installed CLIs.
+    return {p['id']: p for p in all_profiles(home, discover=discover)}
 
 
 def managed(home, agent_ids=None):
     if agent_ids is None:
         path = Path(home) / '.skill-pilot/agents.json'
         agent_ids = state(home)['onboarded'] if path.is_file() else [p['id'] for p in PROFILES]
-    profiles = by_id(home)
+    profiles = by_id(home, discover=False)
     if not set(agent_ids) <= profiles.keys():
         raise ValueError('有 agent 的接入档案没有读懂，请先核对。')
     builtin = [p for p in PROFILES if p['id'] in agent_ids]

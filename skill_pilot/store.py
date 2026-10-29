@@ -59,20 +59,17 @@ def check_links(path, home):
 def physical_state(path, include_times=False):
     """Fingerprint bytes, modes and link text without following links."""
     rows = []
-    def visit(p, relative, info=None):
-        info = p.lstat() if info is None else info
+    def visit(p, relative):
+        info = p.lstat()
         mode = stat.S_IMODE(info.st_mode)
         if include_times:
             rows.append((relative, "modified", info.st_mtime_ns))
-        if stat.S_ISLNK(info.st_mode) or (os.name == 'nt' and
-                info.st_reparse_tag == stat.IO_REPARSE_TAG_MOUNT_POINT):
+        if p.is_symlink() or is_junction(p):
             rows.append((relative, "link", mode, readlink(p)))
-        elif stat.S_ISDIR(info.st_mode):
+        elif p.is_dir():
             rows.append((relative, "dir", mode))
-            with os.scandir(p) as entries:
-                children = sorted(entries, key=lambda item: Path(item.name))
-            for child in children:
-                visit(Path(child.path), relative + "/" + child.name, child.stat(follow_symlinks=False))
+            for child in sorted(p.iterdir()):
+                visit(child, relative + "/" + child.name)
         else:
             rows.append((relative, "file", mode, hashlib.sha256(p.read_bytes()).hexdigest()))
     if path.exists() or path.is_symlink():
@@ -87,18 +84,15 @@ def git_object(kind, payload):
 def git_tree(path):
     """Compute git objects in memory; never create a repository in a source."""
     entries = []
-    with os.scandir(path) as stream:
-        children = list(stream)
-    for entry in children:
-        child = Path(entry.path)
+    for child in path.iterdir():
         if child.name in SKIP_CONTENT:
             continue
-        if entry.is_symlink():
+        if child.is_symlink():
             mode, digest, suffix = "120000", git_object("blob", os.fsencode(readlink(child))), ""
-        elif entry.is_dir():
+        elif child.is_dir():
             mode, digest, suffix = "40000", bytes.fromhex(git_tree(child)), "/"
         else:
-            mode = "100755" if entry.stat().st_mode & 0o111 else "100644"
+            mode = "100755" if child.stat().st_mode & 0o111 else "100644"
             digest, suffix = git_object("blob", child.read_bytes()), ""
         entries.append((os.fsencode(child.name + suffix), mode.encode() + b" " + os.fsencode(child.name) + b"\0" + digest))
     return git_object("tree", b"".join(value for _, value in sorted(entries))).hex()

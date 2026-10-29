@@ -48,7 +48,7 @@ def load(home=None):
     if not path.is_file():
         raise ValueError('请先完成首次整理，再管理技能分配。')
     registry = json.loads(path.read_text())
-    catalog = profiles.by_id(home)
+    catalog = profiles.by_id(home, discover=False)
     agents = [p['id'] for p in profiles.managed(home)]
     protected = profiles.readonly_roots(home)
     for name, skill in registry['skills'].items():
@@ -123,7 +123,7 @@ def listing_tokens(name, info):
 
 def table(home=None):
     home, registry, agents = load(home)
-    catalog = profiles.by_id(home)
+    catalog = profiles.by_id(home, discover=False)
     cells = cell_notes(registry, home)
     active = effective_assignments(registry, home)
     for name, skill in registry['skills'].items():
@@ -247,7 +247,7 @@ def path_warnings(removed, home=None):
 
 def assignment_plan(registry, agents, changes, home=None):
     home = target_home() if home is None else Path(home).resolve()
-    catalog = profiles.by_id(home)
+    catalog = profiles.by_id(home, discover=False)
     managed = [catalog[a] for a in agents]
     result = copy.deepcopy(registry)
     external = external_disable_rules(registry, home)
@@ -465,7 +465,7 @@ def _validate(home, registry, agents, expected_visibility=None):
         mismatch = (set(current[agent]['available']) != set(expected_visibility[agent]) if expected_visibility is not None
                     else set(current[agent]['available']) & managed != expected)
         if mismatch:
-            raise ValueError(f'{profiles.by_id(home)[agent]["name"]} 的实际技能名单与勾选结果不一致，已经恢复原样。原有停用设置可能限制了这次分配。')
+            raise ValueError(f'{profiles.by_id(home, discover=False)[agent]["name"]} 的实际技能名单与勾选结果不一致，已经恢复原样。原有停用设置可能限制了这次分配。')
 
 
 def _commit(home, registry, names, content_names, message):
