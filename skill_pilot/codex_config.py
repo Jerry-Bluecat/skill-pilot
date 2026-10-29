@@ -96,6 +96,11 @@ def render(original, ownership, desired):
     fragments = dict(ownership.get('fragments', {}))
     for name in reversed(list(fragments)):
         fragment = fragments.pop(name)
+        if fragment.lstrip('\r\n').startswith('[[skills.config]]'):
+            if text.count(fragment) != 1:
+                raise ValueError('工具添加的 Codex 设置被外部改过，请刷新并核对后再操作。')
+            text = text.replace(fragment, '', 1)
+            continue
         span = array_span(text)
         if span is None or text[span[0]:span[1]].count(fragment) != 1:
             raise ValueError('工具添加的 Codex 设置被外部改过，请刷新并核对后再操作。')
@@ -109,6 +114,14 @@ def render(original, ownership, desired):
     existing = tomllib.loads(text).get('skills', {}).get('config', [])
     for name in sorted(set(desired) - set(fragments)):
         if any(e.get('name') == name and e.get('enabled') is False for e in existing):
+            continue
+        if re.search(r'(?m)^\[\[skills\.config\]\][ \t\r]*(?:#[^\n]*)?$', text):
+            # Codex also writes array-of-table entries. Append in that format;
+            # an inline config array would overwrite the existing TOML value.
+            fragment = ('\n' if text and not text.endswith('\n') else '') + (
+                '[[skills.config]]\nname = ' + json.dumps(name, ensure_ascii=False) + '\nenabled = false\n')
+            text += fragment
+            fragments[name] = fragment
             continue
         span = array_span(text)
         if span is None:
