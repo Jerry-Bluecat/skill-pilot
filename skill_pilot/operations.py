@@ -336,10 +336,10 @@ def _stop_if_superseded(cancelled):
         raise PreviewSuperseded()
 
 
-def _foreign_skill_entries(home, agents):
-    """Real external copies, with their locations rather than a global name veto."""
+def _assignment_skill_entries(home, agents):
+    """Separate independent copies from live entries pointing at the store."""
     catalog = profiles.managed(home, agents)
-    entries = {}
+    entries, links = {}, {}
     for root in sorted({r for p in catalog for r in p['skill_roots']}):
         inventory = scan_root(home / root, profiles.root_nested(root, catalog),
                               excluded=profiles.exclusions(home / root, home), digest=False)
@@ -347,6 +347,9 @@ def _foreign_skill_entries(home, agents):
             raise ValueError('有技能目录没有完整读出，请刷新后再收编。')
         for skill in inventory['skills']:
             path = Path(skill['path'])
+            if (skill['valid'] and path.is_symlink() and
+                    path.resolve() == (home / '.skill-pilot/store' / skill['name']).resolve()):
+                links.setdefault(skill['name'], set()).add(path.relative_to(home).as_posix())
             if not skill['valid'] or path.is_symlink() or not path.is_dir():
                 continue
             if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', skill['name']):
@@ -354,7 +357,7 @@ def _foreign_skill_entries(home, agents):
             if path.resolve().is_relative_to(home / '.skill-pilot/store'):
                 continue
             entries.setdefault(skill['name'], set()).add(path.relative_to(home).as_posix())
-    return entries
+    return entries, links
 
 
 def preview_assign(changes, home=None, recheck=False, cancelled=None):
@@ -415,7 +418,7 @@ def _recheck_assignment_body(changes, home, registry, agents, cancelled):
         plan = assignment_plan(live, agents, [], home)
     _stop_if_superseded(cancelled)
     # Any external replacement of a selected entry needs a source decision.
-    foreign = _foreign_skill_entries(home, agents)
+    foreign, live_entries = _assignment_skill_entries(home, agents)
     catalog = profiles.managed(home, agents)
     placements, preserved = {}, {}
     for name in plan['changed']:
@@ -436,7 +439,17 @@ def _recheck_assignment_body(changes, home, registry, agents, cancelled):
             else:
                 kept.add(entry)
                 covered.update(readers & assigned)
-        desired = assignment_entries(name, sorted(assigned - covered), home)
+        # An independent copy does not replace this reader's existing store version.
+        retained = set()
+        for entry in live_entries.get(name, set()):
+            readers = {p['id'] for p in catalog if profiles.reads(p, entry)}
+            if readers & covered:
+                retained.add(entry)
+                if any(p['id'] in readers - assigned and not p['disable'] for p in catalog):
+                    changing_copy = True
+        covered.update(p['id'] for p in catalog if p['id'] in assigned and
+                       any(profiles.reads(p, entry) for entry in retained))
+        desired = sorted(set(assignment_entries(name, sorted(assigned - covered), home)) | retained)
         placements[name], preserved[name] = desired, kept
         entries = (set(registry['skills'][name].get('entries', [])) | set(desired)) - kept
         replaced = changing_copy or any((p.exists() or p.is_symlink()) and

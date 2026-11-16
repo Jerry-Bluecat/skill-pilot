@@ -55,6 +55,38 @@ class AssignmentRecheckTests(unittest.TestCase):
         self.assertTrue(plan['conflicts'])
         self.assertEqual(self.fingerprint(), before)
 
+    def test_untouched_reader_keeps_shared_and_independent_versions_and_undo(self):
+        self.assign('other', 'dsh')
+        self.assert_shared_copy_preserved()
+
+    def test_untouched_reader_keeps_unregistered_shared_entry_and_undo(self):
+        shared = self.home / '.agents/skills/other'
+        shared.parent.mkdir(parents=True, exist_ok=True)
+        shared.symlink_to(self.home / '.skill-pilot/store/other', target_is_directory=True)
+        self.assert_shared_copy_preserved()
+
+    def assert_shared_copy_preserved(self):
+        path = self.skill('.dsh/skills/other', 'other', 'independent manual copy')
+        manifest = path / 'SKILL.md'
+        manifest.write_text(manifest.read_text().replace('description: 示例技能\n',
+                            'description: 示例技能\ndisable-model-invocation: true\n'))
+        before = self.fingerprint()
+        visible = visibility(self.home)
+        self.assertIn('other', visible['dsh']['automatic'])
+        self.assertEqual(len(visible['dsh']['versions']['other']), 2)
+        changes = self.changes(agent='claude', enabled=True)
+        review = self.preview(changes)
+        self.assertEqual(review['conflicts'], [])
+        result = self.apply(changes, review)
+        after = visibility(self.home)
+        for agent in visible.keys() - {'claude'}:
+            self.assertEqual(after[agent], visible[agent])
+        self.assertIn('other', after['claude']['available'])
+        self.assertTrue((self.home / '.agents/skills/other').is_symlink())
+        operations.undo(result['id'], home=self.home)
+        self.assertEqual(self.fingerprint(), before)
+        self.assertEqual(visibility(self.home), visible)
+
     def test_actual_destination_replacement_remains_blocked(self):
         self.skill('.claude/skills/renamed-folder', 'other', 'independent recipient')
         before = self.fingerprint()
