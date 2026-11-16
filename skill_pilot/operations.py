@@ -336,14 +336,10 @@ def _stop_if_superseded(cancelled):
         raise PreviewSuperseded()
 
 
-def _foreign_skill_names(home, agents):
-    """Names of real skill folders outside the store.
-
-    Recheck only needs the names. Hashing every file or comparing trees does
-    not change the set, and the managed roots were already read once above.
-    """
+def _foreign_skill_entries(home, agents):
+    """Real external copies, with their locations rather than a global name veto."""
     catalog = profiles.managed(home, agents)
-    names = set()
+    entries = {}
     for root in sorted({r for p in catalog for r in p['skill_roots']}):
         inventory = scan_root(home / root, profiles.root_nested(root, catalog),
                               excluded=profiles.exclusions(home / root, home), digest=False)
@@ -357,8 +353,8 @@ def _foreign_skill_names(home, agents):
                 raise ValueError('新装技能的名称不能安全用作文件夹名称，请先核对。')
             if path.resolve().is_relative_to(home / '.skill-pilot/store'):
                 continue
-            names.add(skill['name'])
-    return names
+            entries.setdefault(skill['name'], set()).add(path.relative_to(home).as_posix())
+    return entries
 
 
 def preview_assign(changes, home=None, recheck=False, cancelled=None):
@@ -419,7 +415,9 @@ def _recheck_assignment_body(changes, home, registry, agents, cancelled):
         plan = assignment_plan(live, agents, [], home)
     _stop_if_superseded(cancelled)
     # Any external replacement of a selected entry needs a source decision.
-    foreign = _foreign_skill_names(home, agents)
+    foreign = _foreign_skill_entries(home, agents)
+    catalog = profiles.managed(home, agents)
+    placements, preserved = {}, {}
     for name in plan['changed']:
         target = home / '.skill-pilot/store' / name
         info = metadata((target / 'SKILL.md').read_text()) if (target / 'SKILL.md').is_file() else {}
@@ -428,9 +426,20 @@ def _recheck_assignment_body(changes, home, registry, agents, cancelled):
                 info.get('name') != name or not info.get('description')):
             for change in affected:
                 conflict(change, '「' + name + '」的技能文件已不完整或名称变了，无法安全添加。')
-        entries = set(registry['skills'][name].get('entries', [])) | set(
-            assignment_entries(name, plan['registry']['skills'][name]['assigned_agents'], home))
-        replaced = name in foreign or any((p.exists() or p.is_symlink()) and
+        assigned = set(plan['registry']['skills'][name]['assigned_agents'])
+        kept, covered, changing_copy = set(), set(), False
+        for entry in foreign.get(name, set()):
+            readers = {p['id'] for p in catalog if profiles.reads(p, entry)}
+            if (entry in registry['skills'][name].get('entries', []) or
+                    any((name in before[a]) != (a in assigned) for a in readers)):
+                changing_copy = True
+            else:
+                kept.add(entry)
+                covered.update(readers & assigned)
+        desired = assignment_entries(name, sorted(assigned - covered), home)
+        placements[name], preserved[name] = desired, kept
+        entries = (set(registry['skills'][name].get('entries', [])) | set(desired)) - kept
+        replaced = changing_copy or any((p.exists() or p.is_symlink()) and
             (not p.is_symlink() or p.resolve() != target.resolve()) for p in (home / e for e in entries))
         if replaced:
             for change in affected:
@@ -463,6 +472,7 @@ def _recheck_assignment_body(changes, home, registry, agents, cancelled):
     result = {k: v for k, v in plan.items() if k != 'registry'} | {
         'revision': start, 'base_assignments': base, 'assignments': assignments, 'changes': effects,
         'conflicts': conflicts, 'cell_notes': cell_notes(plan['registry'], home, agents)}
+    plan['_placements'], plan['_preserved_entries'] = placements, preserved
     return result, plan, before
 
 
@@ -651,7 +661,8 @@ def apply_assign(changes, expected=None, confirmed=False, home=None, recheck=Fal
         return registry
     def apply_latest(current, checked):
         working = plan['registry']
-        reconcile_assignments(working, home, checked, plan['changed'])
+        reconcile_assignments(working, home, checked, plan['changed'],
+                              placements=plan['_placements'], preserved_entries=plan['_preserved_entries'])
         for name in plan['changed']:
             current['skills'][name] = working['skills'][name]
         if 'codex_config' in working:
@@ -802,6 +813,29 @@ def inspect_local(folder, home=None):
     if len({s['name'] for s in found}) != len(found):
         raise ValueError('文件夹里有多个同名技能，请指定具体的技能文件夹。')
     return {'url': str(root), 'skills': found}
+
+
+def reconcile_observed(agent, home=None):
+    """Record existing external grants without moving files or changing disables."""
+    home, registry, agents = load(home)
+    if agent not in agents:
+        raise ValueError('请选择已接入的 agent。')
+    expected = revision(home, agents)
+    before = visibility(home)
+    visible = set(before[agent]['available'])
+    # Only adopt existing grants. Missing/disabled entries are not requests to
+    # remove historical assignments or rewrite independent user preferences.
+    names = [n for n, s in registry['skills'].items()
+             if n in visible and agent not in s['assigned_agents']]
+    if not names:
+        return {'changed': [], 'message': '登记已与现有启用状态一致。'}
+    def mutate(current, checked):
+        for name in names:
+            current['skills'][name]['assigned_agents'] = sorted(
+                set(current['skills'][name]['assigned_agents']) | {agent})
+        return names, [], {'changed': names, '_expected_visibility': {
+            a: state['available'] for a, state in before.items()}}
+    return _run(home, registry, agents, expected, f'补记了 {len(names)} 个已有的 {agent} 技能分配', mutate)
 
 
 def bootstrap(home):  # 首次安装；撤销或撤下后不再自动安装。
