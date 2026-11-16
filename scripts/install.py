@@ -38,6 +38,8 @@ def install():
     search_path = os.pathsep.join(dict.fromkeys(paths))
     app = home / 'Applications/Skill Pilot.app'
     cli = home / '.local/bin/skill-pilot'
+    launch_log = home / 'Library/Logs/SkillPilot-launcher.log'
+    launch_log.parent.mkdir(parents=True, exist_ok=True)
     launcher = app / 'Contents/MacOS/SkillPilot'
     launcher.parent.mkdir(parents=True, exist_ok=True)
     (app / 'Contents/Resources').mkdir(parents=True, exist_ok=True)
@@ -55,7 +57,8 @@ cd {quote(str(PROJECT))} || exit 1
 exec {quote(sys.executable)} -B -m skill_pilot "$@"
 ''')
     launcher.write_text(f'''#!/bin/sh
-/usr/bin/nohup {quote(str(cli))} ui >/dev/null 2>&1 < /dev/null &
+export BROWSER="${{BROWSER:-/usr/bin/open %s}}"
+/usr/bin/nohup {quote(str(cli))} ui >>{quote(str(launch_log))} 2>&1 < /dev/null &
 exit 0
 ''')
     with (app / 'Contents/Info.plist').open('wb') as stream:

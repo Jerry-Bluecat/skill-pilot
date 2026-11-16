@@ -33,6 +33,46 @@ class AssignmentRecheckTests(unittest.TestCase):
         self.assertEqual(plan['changes'], self.changes())
         self.assertEqual(store.physical_state(self.home), before)
 
+    def test_enabling_another_reader_preserves_dsh_independent_copy_and_undo(self):
+        self.skill('.dsh/skills/other', 'other', 'DSH independent content')
+        original = store.physical_state(self.home / '.dsh/skills/other')
+        config = (self.home / '.codex/config.toml').read_bytes()
+        before = self.fingerprint()
+        review = self.preview(self.changes(agent='claude', enabled=True))
+        self.assertEqual(review['conflicts'], [])
+        result = self.apply(self.changes(agent='claude', enabled=True), review)
+        self.assertEqual(store.physical_state(self.home / '.dsh/skills/other'), original)
+        self.assertIn('other', visibility(self.home)['claude']['available'])
+        self.assertIn('other', visibility(self.home)['dsh']['available'])
+        self.assertEqual((self.home / '.codex/config.toml').read_bytes(), config)
+        operations.undo(result['id'], home=self.home)
+        self.assertEqual(self.fingerprint(), before)
+
+    def test_removing_independent_copy_still_requires_source_review(self):
+        self.skill('.dsh/skills/other', 'other', 'DSH independent content')
+        before = self.fingerprint()
+        plan = self.preview(self.changes(agent='dsh', enabled=False))
+        self.assertTrue(plan['conflicts'])
+        self.assertEqual(self.fingerprint(), before)
+
+    def test_actual_destination_replacement_remains_blocked(self):
+        self.skill('.claude/skills/renamed-folder', 'other', 'independent recipient')
+        before = self.fingerprint()
+        # Removing the target reader would require changing its external copy,
+        # even though its directory basename differs from its manifest name.
+        plan = self.preview(self.changes(agent='claude', enabled=False))
+        self.assertTrue(plan['conflicts'])
+        self.assertEqual(self.fingerprint(), before)
+
+    def test_independent_copy_edit_after_preview_rechecks_instead_of_overwriting(self):
+        path = self.skill('.dsh/skills/other', 'other', 'DSH independent content')
+        changes = self.changes(agent='claude', enabled=True)
+        review = self.preview(changes)
+        (path / 'SKILL.md').write_text((path / 'SKILL.md').read_text() + '\nnew external edit\n')
+        with self.assertRaises(operations.AssignmentChanged):
+            self.apply(changes, review)
+        self.assertIn('new external edit', (path / 'SKILL.md').read_text())
+
     def test_unrelated_content_and_new_files_survive_save_and_undo(self):
         changes = self.changes()
         self.preview(changes)

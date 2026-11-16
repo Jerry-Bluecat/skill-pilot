@@ -146,6 +146,22 @@ class PortableInstallerTests(unittest.TestCase):
         self.assertFalse(self.cli.exists())
         self.assertFalse(self.app.exists())
 
+    def test_desktop_defaults_to_macos_url_opener_and_retains_diagnostics(self):
+        self.assertEqual(self.install().returncode, 0)
+        self.cli.write_text('#!/bin/sh\nprintf "browser=%s\\n" "$BROWSER"\necho launcher-diagnostic >&2\n')
+        self.cli.chmod(0o755)
+        subprocess.run([str(self.app / 'Contents/MacOS/SkillPilot')], env=self.env,
+                       capture_output=True, check=True, timeout=5)
+        log = self.home / 'Library/Logs/SkillPilot-launcher.log'
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            text = log.read_text() if log.exists() else ''
+            if 'launcher-diagnostic' in text:
+                break
+            time.sleep(.02)
+        self.assertIn('browser=/usr/bin/open %s', text)
+        self.assertIn('launcher-diagnostic', text)
+
     def test_desktop_entry_migration_and_source_update_refresh_without_reopening(self):
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
